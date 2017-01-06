@@ -1,49 +1,59 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
 using DirectShowLib;
+using TvFox.Properties;
+
 // ReSharper disable SuspiciousTypeConversion.Global
 
 namespace TvFox
 {
     public sealed partial class VideoForm : Form
     {
-        private readonly DsDevice m_videoIn;
-        private readonly DsDevice m_audioIn;
+        private readonly DsDevice _videoIn;
+        private readonly DsDevice _audioIn;
 
-        private DsDevice m_audioOut;
+        private DsDevice _audioOut;
 
-        private IBaseFilter m_videoInFilter;
-        private IBaseFilter m_videoOutFilter;
-        private IBaseFilter m_audioInFilter;
-        private IBaseFilter m_audioOutFilter;
+        private IBaseFilter _videoInFilter;
+        private IBaseFilter _videoOutFilter;
+        private IBaseFilter _audioInFilter;
+        private IBaseFilter _audioOutFilter;
 
-        private IFilterGraph m_filterGraph;
-        private IGraphBuilder m_graphBuilder;
-        private IMediaControl m_mediaControl;
-        private IVideoWindow m_videoWindow;
-        private IMediaFilter m_mediaFilter;
-        private IMediaEventEx m_mediaEvent;
+        private IAMStreamConfig _streamConfig;
+        private IFilterGraph _filterGraph;
+        private IGraphBuilder _graphBuilder;
+        private IMediaControl _mediaControl;
+        private IVideoWindow _videoWindow;
+        private IMediaFilter _mediaFilter;
+        private IMediaEventEx _mediaEvent;
+        private IBasicAudio _basicAudio;
 
-        private bool m_doubleClickCheck;
-        private DateTime m_doubleClickTimer;
+        private bool _doubleClickCheck;
+        private DateTime _doubleClickTimer;
 
-        private readonly Control m_videoContainer;
-        private readonly ContextMenu m_contextMenu;
-        private IPin m_outVideoPin;
-        private IPin m_inVideoPin;
-        private IPin m_outAudioPin;
-        private IPin m_inAudioPin;
+        private Control _videoContainer;
 
-        const float kTargetRatio3x2 = 3f / 2f;
-        const float kTargetRatio16x9 = 16f / 9f;
-        const float kTargetRatio4X3 = 4f / 3f;
-        const float kTargetRatio16X10 = 16f / 10f;
+        private AMMediaType _currentMediaType;
+        private VideoInfoHeader _currentVideoInfo;
 
-        private const int kWmGraphNotify = 0x0400 + 13;
+        private IPin _outVideoPin;
+        private IPin _inVideoPin;
+        private IPin _outAudioPin;
+        private IPin _inAudioPin;
+
+        private Dictionary<string, List<Tuple<Size, float, float>>> _supportedFormats = new Dictionary<string, List<Tuple<Size, float, float>>>();
+
+        const float KTargetRatio3X2 = 3f / 2f;
+        const float KTargetRatio16X9 = 16f / 9f;
+        const float KTargetRatio4X3 = 4f / 3f;
+        const float KTargetRatio16X10 = 16f / 10f;
+
+        private const int KWmGraphNotify = 0x0400 + 13;
 
         public bool ShouldClose
         {
@@ -51,368 +61,567 @@ namespace TvFox
             set;
         } = false;
 
-        public VideoForm(DsDevice c_videoIn, DsDevice c_audioIn)
+        public IReadOnlyDictionary<string, List<Tuple<Size, float, float>>> SupportedFormats => _supportedFormats;
+
+        public Size SourceSize => new Size(_currentVideoInfo.BmiHeader.Width, _currentVideoInfo.BmiHeader.Height);
+
+        public float SourceFramerate => App.TenMill / SourceFrametime;
+
+        public float SourceFrametime => _currentVideoInfo.AvgTimePerFrame;
+
+        public string SourceFormat => App.MediaStubTypeDictionary[_currentMediaType.subType];
+
+        public string SourceDevice => _videoIn.Name;
+
+        public VideoForm(DsDevice videoIn, DsDevice audioIn)
         {
-            if (c_videoIn == null)
-            {
-                throw new ArgumentNullException("The video capture device must not be null!");
-            }
+            StartPosition = FormStartPosition.Manual;
+            // ChangeFormat(59.9401779f);
 
-            m_videoIn = c_videoIn;
+            _videoIn = videoIn;
+            _audioIn = audioIn;
 
-            if (c_audioIn == null)
-            {
-                throw new ArgumentNullException("The audio capture device must not be null!");
-            }
-
-            m_audioIn = c_audioIn;
+            Controls.Add(_videoContainer = new Control { BackColor = Color.Black });
 
             InitializeComponent();
 
-            m_videoContainer = new Control { BackColor = Color.Black };
-            m_videoContainer.MouseDown += (c_sender, c_args) => MouseClicked(c_args);
+            Location = Properties.Settings.Default.WindowPosition;
+            Size = Properties.Settings.Default.WindowSize;
+            WindowState = Properties.Settings.Default.WindowState;
 
-            Controls.Add(m_videoContainer);
+            SetupEvents();
+            SetupAudioOut();
+            SetupFilter();
+            SetupDirectShow();
 
-            AudioOutSetup();
-            FilterSetup();
-            DirectShowSetup();
+            // Media Format
+            DetectAllFormats();
+            DetectCurrentFormat();
 
-            m_doubleClickCheck = false;
-
-            BackColor = Color.Black;
-            ShowInTaskbar = true;
-            Text = $"TvFox: {App.SourceVideoSize.Width}x{App.SourceVideoSize.Height} {App.SourceFrameRate}fps";
+            _doubleClickCheck = false;
 
             SetStyle(ControlStyles.UserPaint, true);
             SetStyle(ControlStyles.AllPaintingInWmPaint, true);
             SetStyle(ControlStyles.OptimizedDoubleBuffer, true);
+
             UpdateStyles();
 
-            m_contextMenu = new ContextMenu();
-            m_contextMenu.MenuItems.Add("Source Dimention Lock", (c_sender, c_args) =>
-            {
-                ((MenuItem)c_sender).Checked = !((MenuItem)c_sender).Checked;
-            });
-            m_contextMenu.MenuItems[0].Checked = true;
+            HandleWindowResize();
 
-            m_contextMenu.MenuItems.Add("-");
-            m_contextMenu.MenuItems.Add("Exit", (c_sender, c_args) => Application.Exit());
+            overlayTopLeft.Visible = Properties.Settings.Default.ShowFps;
+            overlayTopLeft.BringToFront();
+        }
 
-            FormClosing += (c_sender, c_args) =>
+        #region Setup Methods
+
+        private void SetupEvents()
+        {
+            LocationChanged += (sender, args) =>
             {
-                switch (c_args.CloseReason)
+                
+
+                if (!Properties.Settings.Default.Fullscreen)
+                {
+                    Properties.Settings.Default.WindowPosition = Location;
+                    Properties.Settings.Default.Save(); 
+                }
+            };
+
+            SizeChanged += (sender, args) =>
+            {
+                if (!Properties.Settings.Default.Fullscreen)
+                {
+                    Properties.Settings.Default.WindowSize = Size;
+                    Properties.Settings.Default.WindowState = WindowState;
+
+                    Properties.Settings.Default.Save();
+                }
+            };
+
+            _videoContainer.MouseDown += (sender, args) => MouseClicked(args);
+
+            FormClosing += (sender, args) =>
+            {
+                switch (args.CloseReason)
                 {
                     case CloseReason.None:
-                        break;
+                    break;
                     case CloseReason.WindowsShutDown:
-                        break;
+                    break;
                     case CloseReason.MdiFormClosing:
-                        break;
+                    break;
                     case CloseReason.UserClosing:
-                        if (!ShouldClose)
-                        {
-                            c_args.Cancel = true;
-                            Hide();
-                            return;
-                        }
-                        break;
+                    if (!ShouldClose)
+                    {
+                        args.Cancel = true;
+                        Hide();
+                        return;
+                    }
+                    break;
                     case CloseReason.TaskManagerClosing:
-                        break;
+                    break;
                     case CloseReason.FormOwnerClosing:
-                        break;
+                    break;
                     case CloseReason.ApplicationExitCall:
-                        break;
+                    break;
                     default:
-                        throw new ArgumentOutOfRangeException();
+                    throw new ArgumentOutOfRangeException();
                 }
 
                 FilterDispose();
                 AudioOutDispose();
             };
-
-            MouseDown += (c_sender, c_args) => MouseClicked(c_args);
-            Resize += (c_sender, c_args) => HandleWindowResize();
-            VisibleChanged += (c_sender, c_args) => HandleWindowVisibilityChange();
-
-            m_mediaControl.Run();
+        
+            MouseDown += (sender, args) => MouseClicked(args);
+            Resize += (sender, args) => HandleWindowResize();
+            VisibleChanged += (sender, args) => HandleWindowVisibilityChange();
         }
 
-        private void GetVideoDetails()
+        private void SetupAudioOut()
         {
-            var a_qualityProperties = m_videoOutFilter as IQualProp;
+            var aAudioOutputDeviceList = DsDevice.GetDevicesOfCat(FilterCategory.AudioRendererCategory);
+
+            if (aAudioOutputDeviceList.Length == 0)
+            {
+                throw new ApplicationException("No compatible output audio device found...");
+            }
+
+            _audioOut = aAudioOutputDeviceList.First(cDevice => cDevice.Name.Contains("Default DirectSound Device"));
+        }
+
+        private void SetupFilter()
+        {
+            _videoInFilter = AppExtensions.CreateFilter(FilterCategory.VideoInputDevice, _videoIn.Name);
+            _audioInFilter = AppExtensions.CreateFilter(FilterCategory.AudioInputDevice, _audioIn.Name);
+            _audioOutFilter = AppExtensions.CreateFilter(FilterCategory.AudioRendererCategory, _audioOut.Name);
+        }
+
+        public void SetupDirectShow()
+        {
+            int aHr;
+
+            _filterGraph = (IFilterGraph)new FilterGraph();
+
+            //Create the Graph Builder
+            _graphBuilder = _filterGraph as IGraphBuilder;
+            _mediaControl = _filterGraph as IMediaControl;
+            _videoWindow = _filterGraph as IVideoWindow;
+            _mediaFilter = _filterGraph as IMediaFilter;
+            _mediaEvent = _filterGraph as IMediaEventEx;
+            _basicAudio = _filterGraph as IBasicAudio;
+
+            if (_mediaEvent != null)
+            {
+                aHr = _mediaEvent.SetNotifyWindow(Handle, KWmGraphNotify, IntPtr.Zero);
+                DsError.ThrowExceptionForHR(aHr);
+            }
+
+            //Add the Video input device to the graph
+            aHr = _filterGraph.AddFilter(_videoInFilter, "Source Video Filter");
+            DsError.ThrowExceptionForHR(aHr);
+
+            _videoOutFilter = (IBaseFilter)new VideoRenderer();
+
+            aHr = _filterGraph.AddFilter(_videoOutFilter, "Video Renderer");
+            DsError.ThrowExceptionForHR(aHr);
+
+            _outVideoPin = _videoInFilter.GetPin("Video Capture");
+            _streamConfig = _outVideoPin as IAMStreamConfig;
+
+            _inVideoPin = _videoOutFilter.GetPin("Input");
+
+            aHr = _graphBuilder.Connect(_outVideoPin, _inVideoPin);
+            DsError.ThrowExceptionForHR(aHr);
+
+            // Add Audio Devices
+            aHr = _filterGraph.AddFilter(_audioInFilter, "Source Audio Filter");
+            DsError.ThrowExceptionForHR(aHr);
+
+            aHr = _filterGraph.AddFilter(_audioOutFilter, "Audio Renderer");
+            DsError.ThrowExceptionForHR(aHr);
+
+            var aSyncReferenceSource = _audioOutFilter as IReferenceClock;
+
+            aHr = _mediaFilter.SetSyncSource(aSyncReferenceSource);
+            DsError.ThrowExceptionForHR(aHr);
+
+            _outAudioPin = _audioInFilter.GetPin("Audio Capture");
+            _inAudioPin = _audioOutFilter.GetPin("Audio Input pin (rendered)");
+
+            aHr = _graphBuilder.Connect(_outAudioPin, _inAudioPin);
+            DsError.ThrowExceptionForHR(aHr);
+
+            _videoWindow.put_Owner(_videoContainer.Handle);
+            _videoWindow.put_MessageDrain(_videoContainer.Handle);
+            _videoWindow.put_WindowStyle(WindowStyle.Child | WindowStyle.ClipChildren);
+            _videoWindow.SetWindowPosition(0, 0, _videoContainer.Width, _videoContainer.Height);
+        }
+
+        #endregion
+
+        #region Format Utils
+
+        private void DetectAllFormats()
+        {
+            int formatCount;
+            int formatSize;
+
+            _streamConfig.GetNumberOfCapabilities(out formatCount, out formatSize);
+
+            var taskMemory = Marshal.AllocCoTaskMem(formatSize);
+
+            for (var formatId = 0; formatId < formatCount; formatId++)
+            {
+                AMMediaType pmtConfig;
+
+                _streamConfig.GetStreamCaps(formatId, out pmtConfig, taskMemory);
+
+                var sourceFormatInfo = (VideoInfoHeader)Marshal.PtrToStructure(pmtConfig.formatPtr, typeof(VideoInfoHeader));
+                var sourceFormatCaps = (VideoStreamConfigCaps)Marshal.PtrToStructure(taskMemory, typeof(VideoStreamConfigCaps));
+
+                var mediaFormatTypeName = App.MediaStubTypeDictionary[pmtConfig.subType];
+
+                if (!_supportedFormats.ContainsKey(mediaFormatTypeName))
+                {
+                    _supportedFormats.Add(mediaFormatTypeName, new List<Tuple<Size, float, float>>());
+                }
+
+                var formatGeneric =
+                    new Tuple<Size, float, float>(
+                        new Size(sourceFormatInfo.BmiHeader.Width, sourceFormatInfo.BmiHeader.Height),
+                        1f * App.TenMill / sourceFormatCaps.MaxFrameInterval, 1f * App.TenMill / sourceFormatCaps.MinFrameInterval);
+
+                if (!_supportedFormats[mediaFormatTypeName].Contains(formatGeneric))
+                {
+                    _supportedFormats[mediaFormatTypeName].Add(formatGeneric);
+                }
+            }
+
+            Marshal.FreeCoTaskMem(taskMemory);
+        }
+
+        private void DetectCurrentFormat()
+        {
+            AMMediaType mediaType;
+
+            var hr = _streamConfig.GetFormat(out mediaType);
+
+            DsError.ThrowExceptionForHR(hr);
+
+            _currentMediaType = mediaType;
+            _currentVideoInfo = (VideoInfoHeader)Marshal.PtrToStructure(_currentMediaType.formatPtr, typeof(VideoInfoHeader));
+
+            if (Properties.Settings.Default.Format == Guid.Empty)
+            {
+                Properties.Settings.Default.Format = _currentMediaType.subType;
+                Properties.Settings.Default.Save();
+            }
+
+            if (Properties.Settings.Default.Frametime == default(float))
+            {
+                Properties.Settings.Default.Frametime = SourceFrametime;
+                Properties.Settings.Default.Save();
+            }
+        }
+
+        public void ChangeFormat(float frametime, Size? videoSize = null, string format = null)
+        {
+            if (SourceFrametime == frametime)
+            {
+                return;
+            }
+
+            var wasVisible = Visible;
+
+            Hide();
+
+            var hr = 0;
+
+            hr = _mediaControl.Stop();
+            DsError.ThrowExceptionForHR(hr);
+
+            //hr = _graphBuilder.Disconnect(_outVideoPin);
+            //DsError.ThrowExceptionForHR(hr);
+
+            Properties.Settings.Default.Frametime = frametime;
+            Properties.Settings.Default.Save();
+
+            _currentVideoInfo.AvgTimePerFrame = (long)frametime;
+
+            Marshal.StructureToPtr(_currentVideoInfo, _currentMediaType.formatPtr, true);
+
+            hr = _streamConfig.SetFormat(_currentMediaType);
+            DsError.ThrowExceptionForHR(hr);
+
+            //hr = _graphBuilder.Connect(_outVideoPin, _inVideoPin);
+            //DsError.ThrowExceptionForHR(hr);
+
+            hr = _mediaControl.Run();
+            DsError.ThrowExceptionForHR(hr);
+
+            DetectCurrentFormat();
+
+            if (wasVisible)
+            {
+                Show(); 
+            }
+        }
+
+        #endregion
+
+        private int GetVideoDetails()
+        {
+            var aQualityProperties = _videoOutFilter as IQualProp;
 
             int piAvgFrameRate;
-            a_qualityProperties.get_AvgFrameRate(out piAvgFrameRate);
 
-            Debug.WriteLine(piAvgFrameRate);
+            aQualityProperties.get_AvgFrameRate(out piAvgFrameRate);
+
+            return piAvgFrameRate;
         }
 
-        public void ToggleFullscreen()
+        private Size oldSize;
+        private Point oldLocation;
+        private FormWindowState oldState;
+
+        public void FullscreenToggle()
         {
-            OABool a_fullScreenMode;
-            m_videoWindow.get_FullScreenMode(out a_fullScreenMode);
-            m_videoWindow.put_FullScreenMode(a_fullScreenMode == OABool.True ? OABool.False : OABool.True);
+            FullscreenSet(!Properties.Settings.Default.Fullscreen);
         }
+
+        public void FullscreenSet(bool value)
+        {
+            Properties.Settings.Default.Fullscreen = value;
+            Properties.Settings.Default.Save();
+
+            if (value)
+            {
+                oldSize = Size;
+                oldLocation = Location;
+                oldState = WindowState;
+
+                FormBorderStyle = FormBorderStyle.None;
+                WindowState = FormWindowState.Maximized;
+            }
+            else
+            {
+                WindowState = oldState;
+                FormBorderStyle = FormBorderStyle.Sizable;
+
+                Location = oldLocation;
+                Size = oldSize;
+            }
+
+            HandleWindowResize();
+        }
+
+        #region Event Handlers
 
         private void HandleWindowVisibilityChange()
         {
             if (Visible)
             {
-                m_mediaControl.Run();
+                _mediaControl.Run();
             }
             else
             {
-                m_mediaControl.Pause();
+                _mediaControl.Pause();
             }
         }
 
-        private void HandleWindowResize()
+        private float GetSourceRatio()
         {
-            var a_sourceRatio = App.GetSourceRatio();
+            var sourceSize = SourceSize;
 
-            if (m_contextMenu.MenuItems[0].Checked)
-            {
-                ClientSize = App.SourceVideoSize;
-            }
-            else
-            {
-                var a_minWidth = App.SourceVideoSize.Width / 2;
-                var a_minHeight = App.SourceVideoSize.Height / 2;
-
-                if (Width <= a_minWidth)
-                {
-                    Width = a_minWidth;
-                }
-
-                if (Height <= a_minHeight)
-                {
-                    Height = a_minHeight;
-                }
-            }
-
-            float a_windowRatio = 1f * ClientRectangle.Width / ClientRectangle.Height;
-
-            if (a_windowRatio < a_sourceRatio)
-            {
-                m_videoContainer.Width = ClientRectangle.Width;
-                m_videoContainer.Height = (int)(m_videoContainer.Width / a_sourceRatio);
-                m_videoContainer.Top = (ClientRectangle.Height - m_videoContainer.Height) / 2;
-                m_videoContainer.Left = 0;
-            }
-            else
-            {
-                m_videoContainer.Height = ClientRectangle.Height;
-                m_videoContainer.Width = (int)(m_videoContainer.Height * a_sourceRatio);
-                m_videoContainer.Top = 0;
-                m_videoContainer.Left = (ClientRectangle.Width - m_videoContainer.Width) / 2;
-            }
-
-            m_videoWindow.SetWindowPosition(0, 0, m_videoContainer.Width, m_videoContainer.Height);
+            return 1f * sourceSize.Width / sourceSize.Height;
         }
 
-        private void MouseClicked(MouseEventArgs c_args)
+        public void HandleWindowResize()
         {
-            if (c_args.Button == MouseButtons.Right)
+            var sourceSize = SourceSize;
+            var sourceRatio = GetSourceRatio();
+
+            if (Properties.Settings.Default.SourceDemensionLock && WindowState != FormWindowState.Maximized && !Properties.Settings.Default.Fullscreen)
             {
-                GetVideoDetails();
-                m_contextMenu.Show(this, c_args.Location);
+                ClientSize = sourceSize;
             }
             else
             {
-                if (!m_doubleClickCheck)
+                var minWidth = sourceSize.Width / 2;
+                var minHeight = sourceSize.Height / 2;
+
+                if (Width <= minWidth)
                 {
-                    m_doubleClickTimer = DateTime.Now;
-                    m_doubleClickCheck = true;
+                    Width = minWidth;
+                }
+
+                if (Height <= minHeight)
+                {
+                    Height = minHeight;
+                }
+            }
+
+            float windowRatio = 1f * ClientRectangle.Width / ClientRectangle.Height;
+
+            if (windowRatio < sourceRatio)
+            {
+                _videoContainer.Width = ClientRectangle.Width;
+                _videoContainer.Height = (int)(_videoContainer.Width / sourceRatio);
+                _videoContainer.Top = (ClientRectangle.Height - _videoContainer.Height) / 2;
+                _videoContainer.Left = 0;
+            }
+            else
+            {
+                _videoContainer.Height = ClientRectangle.Height;
+                _videoContainer.Width = (int)(_videoContainer.Height * sourceRatio);
+                _videoContainer.Top = 0;
+                _videoContainer.Left = (ClientRectangle.Width - _videoContainer.Width) / 2;
+            }
+
+            _videoWindow.SetWindowPosition(0, 0, _videoContainer.Width, _videoContainer.Height);
+        }
+
+        private void MouseClicked(MouseEventArgs cArgs)
+        {
+            if (cArgs.Button == MouseButtons.Right)
+            {
+                int volume;
+                _basicAudio.get_Volume(out volume);
+                Debug.WriteLine(volume);
+
+                App.ContextMenu.Show(this, cArgs.Location);
+            }
+            else
+            {
+                if (!_doubleClickCheck)
+                {
+                    _doubleClickTimer = DateTime.Now;
+                    _doubleClickCheck = true;
                 }
                 else
                 {
-                    if (DateTime.Now - m_doubleClickTimer < TimeSpan.FromSeconds(1))
+                    if (DateTime.Now - _doubleClickTimer < TimeSpan.FromSeconds(1))
                     {
-                        ToggleFullscreen();
+                        FullscreenToggle();
                     }
 
-                    m_doubleClickCheck = false;
+                    _doubleClickCheck = false;
                 }
             }
         }
 
-        private void AudioOutSetup()
-        {
-            var a_audioOutputDeviceList = DsDevice.GetDevicesOfCat(FilterCategory.AudioRendererCategory);
+        #endregion
 
-            if (a_audioOutputDeviceList.Length == 0)
-            {
-                throw new ApplicationException("No compatible output audio device found...");
-            }
-
-            m_audioOut = a_audioOutputDeviceList.First(c_device => c_device.Name.Contains("Default DirectSound Device"));
-        }
+        #region Dispose Methods
 
         private void AudioOutDispose()
         {
-            m_audioOut?.Dispose();
-        }
-
-        private void FilterSetup()
-        {
-            m_videoInFilter = App.CreateFilter(FilterCategory.VideoInputDevice, m_videoIn.Name);
-            m_audioInFilter = App.CreateFilter(FilterCategory.AudioInputDevice, m_audioIn.Name);
-            m_audioOutFilter = App.CreateFilter(FilterCategory.AudioRendererCategory, m_audioOut.Name);
+            _audioOut?.Dispose();
         }
 
         private void FilterDispose()
         {
-            if (m_videoInFilter != null)
+            if (_videoInFilter != null)
             {
-                Marshal.ReleaseComObject(m_videoInFilter);
-                m_videoInFilter = null;
+                Marshal.ReleaseComObject(_videoInFilter);
+                _videoInFilter = null;
             }
 
-            if (m_audioInFilter != null)
+            if (_audioInFilter != null)
             {
-                Marshal.ReleaseComObject(m_audioInFilter);
-                m_audioInFilter = null;
+                Marshal.ReleaseComObject(_audioInFilter);
+                _audioInFilter = null;
             }
 
-            if (m_audioOutFilter != null)
+            if (_audioOutFilter != null)
             {
-                Marshal.ReleaseComObject(m_audioOutFilter);
-                m_audioOutFilter = null;
+                Marshal.ReleaseComObject(_audioOutFilter);
+                _audioOutFilter = null;
             }
-        }
-
-        public void DirectShowSetup()
-        {
-            int a_hr;
-
-            m_filterGraph = (IFilterGraph)new FilterGraph();
-
-            //Create the Graph Builder
-            m_graphBuilder = m_filterGraph as IGraphBuilder;
-            m_mediaControl = m_filterGraph as IMediaControl;
-            m_videoWindow = m_filterGraph as IVideoWindow;
-            m_mediaFilter = m_filterGraph as IMediaFilter;
-            m_mediaEvent = m_filterGraph as IMediaEventEx;
-
-            if (m_mediaEvent != null)
-            {
-                a_hr = m_mediaEvent.SetNotifyWindow(Handle, kWmGraphNotify, IntPtr.Zero);
-                DsError.ThrowExceptionForHR(a_hr);
-            }
-
-            //Add the Video input device to the graph
-            a_hr = m_filterGraph.AddFilter(m_videoInFilter, "Source Video Filter");
-            DsError.ThrowExceptionForHR(a_hr);
-
-            m_videoOutFilter = (IBaseFilter)new VideoRenderer();
-
-            a_hr = m_filterGraph.AddFilter(m_videoOutFilter, "Video Renderer");
-            DsError.ThrowExceptionForHR(a_hr);
-
-            m_outVideoPin = App.GetPin(m_videoInFilter, "Video Capture");
-            m_inVideoPin = App.GetPin(m_videoOutFilter, "Input");
-
-            a_hr = m_graphBuilder.Connect(m_outVideoPin, m_inVideoPin);
-            DsError.ThrowExceptionForHR(a_hr);
-
-            // Add Audio Devices
-            a_hr = m_filterGraph.AddFilter(m_audioInFilter, "Source Audio Filter");
-            DsError.ThrowExceptionForHR(a_hr);
-
-            a_hr = m_filterGraph.AddFilter(m_audioOutFilter, "Audio Renderer");
-            DsError.ThrowExceptionForHR(a_hr);
-
-            var a_syncReferenceSource = m_audioOutFilter as IReferenceClock;
-
-            a_hr = m_mediaFilter.SetSyncSource(a_syncReferenceSource);
-            DsError.ThrowExceptionForHR(a_hr);
-
-            a_syncReferenceSource = null;
-
-            m_outAudioPin = App.GetPin(m_audioInFilter, "Audio Capture");
-            m_inAudioPin = App.GetPin(m_audioOutFilter, "Audio Input pin (rendered)");
-
-            a_hr = m_graphBuilder.Connect(m_outAudioPin, m_inAudioPin);
-            DsError.ThrowExceptionForHR(a_hr);
-
-            m_videoWindow.put_Owner(m_videoContainer.Handle);
-            m_videoWindow.put_MessageDrain(m_videoContainer.Handle);
-            m_videoWindow.put_WindowStyle(WindowStyle.Child | WindowStyle.ClipSiblings | WindowStyle.ClipChildren);
-            m_videoWindow.SetWindowPosition(0, 0, m_videoContainer.Width, m_videoContainer.Height);
-
-            /*var a_dsAudio = (IAMDirectSound)m_audioOutFilter;
-            a_dsAudio.SetFocusWindow(Handle, true);*/
-
-            m_mediaControl.Run();
         }
 
         public void DirectShowDispose()
         {
-            int a_hr = 0;
+            int aHr;
 
-            a_hr = m_mediaControl.Stop();
-            DsError.ThrowExceptionForHR(a_hr);
+            DsUtils.FreeAMMediaType(_currentMediaType);
 
-            a_hr = m_mediaEvent.SetNotifyWindow(IntPtr.Zero, 0, IntPtr.Zero);
-            DsError.ThrowExceptionForHR(a_hr);
+            aHr = _mediaControl.Stop();
+            DsError.ThrowExceptionForHR(aHr);
 
-            a_hr = m_graphBuilder.Disconnect(m_inVideoPin);
-            DsError.ThrowExceptionForHR(a_hr);
+            aHr = _mediaEvent.SetNotifyWindow(IntPtr.Zero, 0, IntPtr.Zero);
+            DsError.ThrowExceptionForHR(aHr);
 
-            a_hr = m_graphBuilder.Disconnect(m_inAudioPin);
-            DsError.ThrowExceptionForHR(a_hr);
+            aHr = _graphBuilder.Disconnect(_inVideoPin);
+            DsError.ThrowExceptionForHR(aHr);
 
-            a_hr = m_graphBuilder.Disconnect(m_outVideoPin);
-            DsError.ThrowExceptionForHR(a_hr);
+            aHr = _graphBuilder.Disconnect(_inAudioPin);
+            DsError.ThrowExceptionForHR(aHr);
 
-            a_hr = m_graphBuilder.Disconnect(m_outAudioPin);
-            DsError.ThrowExceptionForHR(a_hr);
+            aHr = _graphBuilder.Disconnect(_outVideoPin);
+            DsError.ThrowExceptionForHR(aHr);
 
-            a_hr = m_filterGraph.RemoveFilter(m_videoInFilter);
-            DsError.ThrowExceptionForHR(a_hr);
+            aHr = _graphBuilder.Disconnect(_outAudioPin);
+            DsError.ThrowExceptionForHR(aHr);
 
-            a_hr = m_filterGraph.RemoveFilter(m_audioInFilter);
-            DsError.ThrowExceptionForHR(a_hr);
+            aHr = _filterGraph.RemoveFilter(_videoInFilter);
+            DsError.ThrowExceptionForHR(aHr);
 
-            Marshal.ReleaseComObject(m_videoInFilter);
-            m_videoInFilter = null;
+            aHr = _filterGraph.RemoveFilter(_audioInFilter);
+            DsError.ThrowExceptionForHR(aHr);
 
-            Marshal.ReleaseComObject(m_audioInFilter);
-            m_audioInFilter = null;
+            Marshal.ReleaseComObject(_videoInFilter);
+            _videoInFilter = null;
 
-            a_hr = m_filterGraph.RemoveFilter(m_videoOutFilter);
-            DsError.ThrowExceptionForHR(a_hr);
+            Marshal.ReleaseComObject(_audioInFilter);
+            _audioInFilter = null;
 
-            a_hr = m_filterGraph.RemoveFilter(m_audioOutFilter);
-            DsError.ThrowExceptionForHR(a_hr);
+            aHr = _filterGraph.RemoveFilter(_videoOutFilter);
+            DsError.ThrowExceptionForHR(aHr);
 
-            Marshal.ReleaseComObject(m_videoOutFilter);
-            m_videoOutFilter = null;
+            aHr = _filterGraph.RemoveFilter(_audioOutFilter);
+            DsError.ThrowExceptionForHR(aHr);
 
-            Marshal.ReleaseComObject(m_audioOutFilter);
-            m_audioOutFilter = null;
+            Marshal.ReleaseComObject(_videoOutFilter);
+            _videoOutFilter = null;
 
-            m_graphBuilder = null;
-            m_mediaControl = null;
-            m_videoWindow = null;
-            m_mediaFilter = null;
-            m_mediaEvent = null;
+            Marshal.ReleaseComObject(_audioOutFilter);
+            _audioOutFilter = null;
 
-            Marshal.ReleaseComObject(m_outAudioPin);
-            m_outAudioPin = null;
+            _graphBuilder = null;
+            _mediaControl = null;
+            _videoWindow = null;
+            _mediaFilter = null;
+            _mediaEvent = null;
 
-            Marshal.ReleaseComObject(m_inAudioPin);
-            m_inAudioPin = null;
+            Marshal.ReleaseComObject(_outAudioPin);
+            _outAudioPin = null;
 
-            Marshal.ReleaseComObject(m_outVideoPin);
-            m_outVideoPin = null;
+            Marshal.ReleaseComObject(_inAudioPin);
+            _inAudioPin = null;
 
-            Marshal.ReleaseComObject(m_inVideoPin);
-            m_inVideoPin = null;
+            Marshal.ReleaseComObject(_streamConfig);
+            _streamConfig = null;
 
-            Marshal.ReleaseComObject(m_filterGraph);
-            m_filterGraph = null;
+            Marshal.ReleaseComObject(_outVideoPin);
+            _outVideoPin = null;
+
+            Marshal.ReleaseComObject(_inVideoPin);
+            _inVideoPin = null;
+
+            Marshal.ReleaseComObject(_filterGraph);
+            _filterGraph = null;
+        }
+
+        #endregion
+
+        private void mainTimer_Tick(object sender, EventArgs e)
+        {
+            if (Settings.Default.ShowFps)
+            {
+                var framrate = (float)GetVideoDetails() / 100f;
+                overlayTopLeft.Text = $"{framrate:F} fps";
+            }
         }
     }
 }

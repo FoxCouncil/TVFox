@@ -1,20 +1,44 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio 14
-VisualStudioVersion = 14.0.24720.0
+VisualStudioVersion = 14.0.25420.1
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TvFox", "TvFox.csproj", "{49C17CCF-8F8E-49ED-9B29-67B22B4C2AAC}"
 EndProject
+Project("{6141683F-8A12-4E36-9623-2EB02B2C2303}") = "Setup", "Setup\Setup.isproj", "{7686A493-CE72-4C95-9E8B-2798DBF9730D}"
+	ProjectSection(ProjectDependencies) = postProject
+		{49C17CCF-8F8E-49ED-9B29-67B22B4C2AAC} = {49C17CCF-8F8E-49ED-9B29-67B22B4C2AAC}
+	EndProjectSection
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		CD_ROM|Any CPU = CD_ROM|Any CPU
 		Debug|Any CPU = Debug|Any CPU
+		DVD-5|Any CPU = DVD-5|Any CPU
 		Release|Any CPU = Release|Any CPU
+		SingleImage|Any CPU = SingleImage|Any CPU
 	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{49C17CCF-8F8E-49ED-9B29-67B22B4C2AAC}.CD_ROM|Any CPU.ActiveCfg = Release|Any CPU
+		{49C17CCF-8F8E-49ED-9B29-67B22B4C2AAC}.CD_ROM|Any CPU.Build.0 = Release|Any CPU
 		{49C17CCF-8F8E-49ED-9B29-67B22B4C2AAC}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{49C17CCF-8F8E-49ED-9B29-67B22B4C2AAC}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{49C17CCF-8F8E-49ED-9B29-67B22B4C2AAC}.DVD-5|Any CPU.ActiveCfg = Debug|Any CPU
+		{49C17CCF-8F8E-49ED-9B29-67B22B4C2AAC}.DVD-5|Any CPU.Build.0 = Debug|Any CPU
 		{49C17CCF-8F8E-49ED-9B29-67B22B4C2AAC}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{49C17CCF-8F8E-49ED-9B29-67B22B4C2AAC}.Release|Any CPU.Build.0 = Release|Any CPU
+		{49C17CCF-8F8E-49ED-9B29-67B22B4C2AAC}.SingleImage|Any CPU.ActiveCfg = Release|Any CPU
+		{49C17CCF-8F8E-49ED-9B29-67B22B4C2AAC}.SingleImage|Any CPU.Build.0 = Release|Any CPU
+		{7686A493-CE72-4C95-9E8B-2798DBF9730D}.CD_ROM|Any CPU.ActiveCfg = CD_ROM
+		{7686A493-CE72-4C95-9E8B-2798DBF9730D}.CD_ROM|Any CPU.Build.0 = CD_ROM
+		{7686A493-CE72-4C95-9E8B-2798DBF9730D}.Debug|Any CPU.ActiveCfg = DVD-5
+		{7686A493-CE72-4C95-9E8B-2798DBF9730D}.Debug|Any CPU.Build.0 = DVD-5
+		{7686A493-CE72-4C95-9E8B-2798DBF9730D}.DVD-5|Any CPU.ActiveCfg = DVD-5
+		{7686A493-CE72-4C95-9E8B-2798DBF9730D}.DVD-5|Any CPU.Build.0 = DVD-5
+		{7686A493-CE72-4C95-9E8B-2798DBF9730D}.Release|Any CPU.ActiveCfg = SingleImage
+		{7686A493-CE72-4C95-9E8B-2798DBF9730D}.Release|Any CPU.Build.0 = SingleImage
+		{7686A493-CE72-4C95-9E8B-2798DBF9730D}.SingleImage|Any CPU.ActiveCfg = SingleImage
+		{7686A493-CE72-4C95-9E8B-2798DBF9730D}.SingleImage|Any CPU.Build.0 = SingleImage
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

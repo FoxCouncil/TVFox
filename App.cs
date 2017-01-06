@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
 using System.Linq;
@@ -13,6 +14,13 @@ namespace TvFox
 {
     internal class App : ApplicationContext
     {
+        public const float TenMill = 10000000f;
+
+        public static readonly float[] FrameTimes = { 166833f, 200000f, 333667f, 400000f };
+        public static readonly float[] FrameRates = { (TenMill / FrameTimes[0]), TenMill / FrameTimes[1], TenMill / FrameTimes[2], TenMill / FrameTimes[3] };
+
+        public static Dictionary<Guid, string> MediaStubTypeDictionary;
+
         public event Action<AppState> StateChanged;
         public event Action<WindowState> WindowStateChanged;
 
@@ -28,85 +36,166 @@ namespace TvFox
             private set;
         } = WindowState.FirstStart;
 
-        private readonly Timer m_timer;
-        private readonly NotifyIcon m_trayIcon;
-        private readonly ContextMenu m_contextMenu;
-        private VideoForm m_videoForm;
+        private readonly Timer _timer;
+        private readonly NotifyIcon _trayIcon;
+
+        private readonly ContextMenu _contextMenu;
+        private readonly MenuItem _contextMenuShowHideWindow;
+        private readonly MenuItem _contextMenuSettings;
+        private readonly MenuItem _contextMenuSignalDetection;
+        private readonly MenuItem _contextMenuVideoInfoData;
+
+        private MenuItem _contextMenuSettingSourceDevice;
+        private MenuItem _contextMenuSettingSourceResolution;
+        private MenuItem _contextMenuSettingSourceFramerate;
+        private MenuItem _contextMenuSettingSourceFormat;
+        private MenuItem _contextMenuSettingDimensionLock;
+
+        private MenuItem _contextMenuDebug;
+
+        private MenuItem _contextMenuDebugShowFps;
+
+        private VideoForm _videoForm;
 
         public App()
         {
-            CurrentInputVideoSignalFilter = CreateFilter(FilterCategory.VideoInputDevice, CurrentInputVideoDevice.Name);
+            LoadMediaSubtypeStrings();
 
-            ThreadExit += (c_sender, c_args) =>
+            CurrentInputVideoSignalFilter = AppExtensions.CreateFilter(FilterCategory.VideoInputDevice, CurrentInputVideoDevice.Name);
+
+            ThreadExit += (sender, args) =>
             {
-                m_trayIcon.Visible = false;
+                _trayIcon.Visible = false;
             };
 
-            StateChanged += c_state =>
+            StateChanged += state =>
             {
-                switch (c_state)
+                switch (state)
                 {
                     case AppState.NoSignal:
-                        SignalDispose();
-                        break;
+                    {
+                        SignalDispose(); 
+                    }
+                    break;
+
                     case AppState.FirstStart:
-                        Debug.WriteLine("Welcome to TvFox");
-                        break;
+                    {
+                        Debug.WriteLine("Welcome to TvFox"); 
+                    }
+                    break;
+
                     case AppState.Signal:
-                        SignalProcess();
-                        break;
+                    {
+                        SignalProcess(); 
+                    }
+                    break;
+
                     default:
-                        throw new ArgumentOutOfRangeException(nameof(c_state), c_state, null);
+                    {
+                        throw new ArgumentOutOfRangeException(nameof(state), state, null); 
+                    }
                 }
             };
 
-            m_contextMenu = new ContextMenu();
-            m_contextMenu.MenuItems.Add(new MenuItem { Text = "Show Window", Enabled = false });
-            m_contextMenu.MenuItems.Add("-");
-            m_contextMenu.MenuItems.Add(new MenuItem { Text = "No Signal Detected", Enabled = false });
-            m_contextMenu.MenuItems.Add("-");
-            m_contextMenu.MenuItems.Add(new MenuItem { Text = "Video Info:", Enabled = false });
-            m_contextMenu.MenuItems.Add(new MenuItem { Text = "N/A", Enabled = false });
-            m_contextMenu.MenuItems.Add("-");
-            m_contextMenu.MenuItems.Add("E&xit", (c_sender, c_args) => ExitThread());
+            ContextMenu = _contextMenu = new ContextMenu();
+            _contextMenu.MenuItems.Add(_contextMenuShowHideWindow = new MenuItem { Text = "Show &Window", Enabled = false });
+            _contextMenu.MenuItems.Add("-");
+            _contextMenu.MenuItems.Add(_contextMenuSettings = new MenuItem { Text = "&Settings" });
+            _contextMenu.MenuItems.Add("-");
+            _contextMenu.MenuItems.Add(_contextMenuSignalDetection = new MenuItem { Text = "No Signal Detected", Enabled = false });
+            _contextMenu.MenuItems.Add(_contextMenuVideoInfoData = new MenuItem { Text = "N/A", Enabled = false });
+            _contextMenu.MenuItems.Add("-");
+            _contextMenu.MenuItems.Add("&About", (sender, args) => MessageBox.Show("Arf"));
+            _contextMenu.MenuItems.Add("E&xit", (cSender, cArgs) => ExitThread());
+            _contextMenu.MenuItems[0].Click += (cSender, cArgs) => ToggleWindow();
 
-            m_contextMenu.MenuItems[0].Click += (c_sender, c_args) => ToggleWindow();
+            SetupSettingsMenu();
 
-            m_trayIcon = new NotifyIcon { Text = "TvFox", Icon = Resources.TvFox, Visible = true, ContextMenu = m_contextMenu };
-            m_trayIcon.DoubleClick += (c_sender, c_args) => ToggleWindow();
+            _trayIcon = new NotifyIcon { Text = "TvFox", Icon = Resources.TvFox, Visible = true, ContextMenu = _contextMenu };
+            _trayIcon.DoubleClick += (cSender, cArgs) => ToggleWindow();
 
-            m_timer = new Timer { Interval = 50 };
-            m_timer.Tick += (c_sender, c_args) => CheckSignalState();
-            m_timer.Start();
+            _timer = new Timer { Interval = 50 };
+            _timer.Tick += (cSender, cArgs) => CheckSignalState();
+            _timer.Start();
+
+            ReadUserSettings();
+        }
+
+        private void ReadUserSettings()
+        {
+            if (Settings.Default.WindowPosition == Point.Empty)
+            {
+                Settings.Default.WindowPosition = Screen.PrimaryScreen.WorkingArea.Center();
+            }
+
+            if (Settings.Default.WindowSize == Size.Empty)
+            {
+                Settings.Default.WindowSize = new Size(640, 480);
+            }
+        }
+
+        private void SetupSettingsMenu()
+        {
+            _contextMenuSettings.MenuItems.Add(_contextMenuSettingSourceDevice = new MenuItem { Enabled = false });
+            _contextMenuSettings.MenuItems.Add(_contextMenuSettingSourceResolution = new MenuItem());
+            _contextMenuSettings.MenuItems.Add(_contextMenuSettingSourceFramerate = new MenuItem());
+            _contextMenuSettings.MenuItems.Add(_contextMenuSettingSourceFormat = new MenuItem());
+            _contextMenuSettings.MenuItems.Add("-");
+            _contextMenuSettings.MenuItems.Add(_contextMenuSettingDimensionLock = new MenuItem { Text = "Source Dimension Lock", Checked = Settings.Default.SourceDemensionLock });
+            _contextMenuSettingDimensionLock.Click += (sender, args) =>
+            {
+                _contextMenuSettingDimensionLock.Checked = Settings.Default.SourceDemensionLock = !Settings.Default.SourceDemensionLock;
+                Settings.Default.Save();
+                _videoForm?.HandleWindowResize();
+            };
+            _contextMenuSettings.MenuItems.Add("-");
+            _contextMenuSettings.MenuItems.Add(_contextMenuDebug = new MenuItem { Text = "&Debug" });
+            _contextMenuDebug.MenuItems.Add(_contextMenuDebugShowFps = new MenuItem {Text = "Display Fps", Checked = Settings.Default.ShowFps});
+            _contextMenuDebugShowFps.Click += (sender, args) =>
+            {
+                _contextMenuDebugShowFps.Checked = Settings.Default.ShowFps = !Settings.Default.ShowFps;
+                Settings.Default.Save();
+
+                _videoForm.overlayTopLeft.Visible = Settings.Default.ShowFps;
+            };
         }
 
         private void SignalProcess()
         {
-            DetectVideoFormat();
+            var oldLocation = Settings.Default.WindowPosition;
 
-            m_videoForm = new VideoForm(CurrentInputVideoDevice, CurrentInputAudioDevice)
+            _videoForm = new VideoForm(CurrentInputVideoDevice, CurrentInputAudioDevice)
             {
+                BackColor = Color.Black,
                 Icon = Resources.TvFox,
-                ClientSize = SourceVideoSize,
-                StartPosition = FormStartPosition.CenterScreen
+                ShowInTaskbar = true,
+                Text = "TvFox"
             };
 
-            m_videoForm.Show();
+            _videoForm.ChangeFormat(Settings.Default.Frametime);
+
+            _videoForm.VisibleChanged += (sender, args) => UpdateContextMenu();
+
+            _videoForm.Show();
+
+            _videoForm.FullscreenSet(Settings.Default.Fullscreen);
+
+            _videoForm.Location = oldLocation;
 
             UpdateContextMenu();
         }
 
         private void SignalDispose()
         {
-            if (m_videoForm != null)
+            if (_videoForm != null)
             {
-                if (!m_videoForm.IsDisposed)
+                if (!_videoForm.IsDisposed)
                 {
-                    m_videoForm.ShouldClose = true;
-                    m_videoForm.Close();
+                    _videoForm.ShouldClose = true;
+                    _videoForm.Close();
                 }
 
-                m_videoForm = null;
+                _videoForm = null;
             }
 
             UpdateContextMenu();
@@ -114,104 +203,140 @@ namespace TvFox
 
         private void UpdateContextMenu()
         {
-            if (CurrentState == AppState.Signal)
+            var hasSignal = CurrentState == AppState.Signal;
+
+            _contextMenuShowHideWindow.Text = _videoForm.IsVisible() ? "Hide Window" : "Show Window";
+
+            // _contextMenuSettingSourceDevice.Enabled = hasSignal;
+            _contextMenuSettingSourceDevice.Text = hasSignal ? $"Device ({_videoForm?.SourceDevice})" : "Device";
+
+            _contextMenuSettingSourceResolution.Enabled = hasSignal;
+            _contextMenuSettingSourceResolution.Text = hasSignal ? $"Resolution ({_videoForm?.SourceSize.Width}x{_videoForm?.SourceSize.Height})" : "Resolution";
+            _contextMenuSettingSourceResolution.MenuItems.Clear();
+
+            _contextMenuSettingSourceFramerate.Enabled = hasSignal;
+            _contextMenuSettingSourceFramerate.Text = hasSignal ? $"Framerate ({_videoForm?.SourceFramerate:F} fps)" : "Framerate";
+            _contextMenuSettingSourceFramerate.MenuItems.Clear();
+
+            _contextMenuSettingSourceFormat.Enabled = hasSignal;
+            _contextMenuSettingSourceFormat.Text = hasSignal ? $"Format ({_videoForm?.SourceFormat})" : "Format";
+            _contextMenuSettingSourceFormat.MenuItems.Clear();
+
+            if (hasSignal)
             {
-                m_contextMenu.MenuItems[0].Text = m_videoForm.Visible ? "Hide Window" : "Show Window";
-                m_contextMenu.MenuItems[0].Enabled = true;
-                m_contextMenu.MenuItems[2].Text = "Signal Detected";
-                m_contextMenu.MenuItems[5].Text = $"{SourceVideoSize.Width}x{SourceVideoSize.Height} {SourceFrameRate}fps";
+                foreach (var format in _videoForm.SupportedFormats.Keys)
+                {
+                    _contextMenuSettingSourceFormat.MenuItems.Add(new MenuItem { Text = format, Checked = format == _videoForm.SourceFormat, Enabled = false });
+                }
+
+                var currentFormatSupported = _videoForm.SupportedFormats[_videoForm.SourceFormat];
+
+                HashSet<Size> foundSizes = new HashSet<Size>();
+
+                foreach (var subFormat in currentFormatSupported)
+                {
+                    if (foundSizes.Contains(subFormat.Item1))
+                    {
+                        continue; 
+                    }
+
+                    _contextMenuSettingSourceResolution.MenuItems.Add(new MenuItem { Text = $"{subFormat.Item1.Width}x{subFormat.Item1.Height}", Checked = subFormat.Item1 == _videoForm.SourceSize });
+
+                    foundSizes.Add(subFormat.Item1);
+                }
+
+                if (_contextMenuSettingSourceResolution.MenuItems.Count == 1)
+                {
+                    _contextMenuSettingSourceResolution.MenuItems.Clear();
+                    _contextMenuSettingSourceResolution.Enabled = false;
+                }
+
+                var index = 0;
+
+                foreach (var frameRate in FrameRates)
+                {
+                    var frameRateOption = new MenuItem {Text = $"{frameRate:F} fps", Checked = frameRate == _videoForm.SourceFramerate, Tag = FrameTimes[index] };
+                    frameRateOption.Click += (sender, args) => _videoForm.ChangeFormat((float)((MenuItem)sender).Tag);
+                    _contextMenuSettingSourceFramerate.MenuItems.Add(frameRateOption);
+
+                    index++;
+                }
             }
-            else if (CurrentState == AppState.NoSignal)
-            {
-                m_contextMenu.MenuItems[0].Enabled = false;
-                m_contextMenu.MenuItems[2].Text = "No Signal Detected";
-                m_contextMenu.MenuItems[5].Text = "N/A";
-            }
+
+            _contextMenuShowHideWindow.Enabled = hasSignal;
+
+            _contextMenuSignalDetection.Text = hasSignal ? "Signal Detected:" : "No Signal Detected";
+            _contextMenuVideoInfoData.Text = hasSignal ? $"{_videoForm.SourceSize.Width}x{_videoForm.SourceSize.Height} {_videoForm.SourceFramerate:F} fps" : "N/A";
         }
 
         private void CheckSignalState()
         {
-            var a_videoDecoderInterface = CurrentInputVideoSignalFilter as IAMAnalogVideoDecoder;
+            var videoDecoderInterface = CurrentInputVideoSignalFilter as IAMAnalogVideoDecoder;
 
-            var a_signalDetected = false;
+            var signalDetected = false;
 
-            if (a_videoDecoderInterface != null)
-            {
-                a_videoDecoderInterface.get_HorizontalLocked(out a_signalDetected);
-            }
+            videoDecoderInterface?.get_HorizontalLocked(out signalDetected);
 
-            SetState(a_signalDetected ? AppState.Signal : AppState.NoSignal);
-        }
-
-        internal static float GetSourceRatio()
-        {
-            return 1f * SourceVideoSize.Width / SourceVideoSize.Height;
+            SetState(signalDetected ? AppState.Signal : AppState.NoSignal);
         }
 
         private void ToggleWindow()
         {
-            if (m_videoForm.Visible)
+            if (_videoForm.Visible)
             {
-                m_videoForm.Hide();
+                _videoForm.Hide();
             }
             else
             {
-                m_videoForm.Show();
+                _videoForm.Show();
             }
 
             UpdateContextMenu();
         }
 
-        private static void DetectVideoFormat()
+        private void SetState(AppState cAppState)
         {
-            var a_videoSourceFilter = CreateFilter(FilterCategory.VideoInputDevice, CurrentInputVideoDevice.Name);
-            var a_outputPin = GetPin(a_videoSourceFilter, "Video Capture");
-
-            var a_streamConfig = a_outputPin as IAMStreamConfig;
-            if (a_streamConfig == null)
-            {
-
-                return;
-            }
-
-            AMMediaType a_mediaType;
-
-            var a_hr = a_streamConfig.GetFormat(out a_mediaType);
-            DsError.ThrowExceptionForHR(a_hr);
-
-            var a_videoInfoHeader = (VideoInfoHeader)Marshal.PtrToStructure(a_mediaType.formatPtr, typeof(VideoInfoHeader));
-
-            SourceVideoSize = new Size(a_videoInfoHeader.BmiHeader.Width, a_videoInfoHeader.BmiHeader.Height);
-            SourceFrameRate = 1f * 10000000 / a_videoInfoHeader.AvgTimePerFrame;
-
-            DsUtils.FreeAMMediaType(a_mediaType);
-
-            Marshal.ReleaseComObject(a_outputPin);
-            Marshal.ReleaseComObject(a_videoSourceFilter);
-        }
-
-        private void SetState(AppState c_appState)
-        {
-            if (CurrentState == c_appState)
+            if (CurrentState == cAppState)
             {
                 return;
             }
 
-            CurrentState = c_appState;
+            CurrentState = cAppState;
 
             StateChanged?.Invoke(CurrentState);
         }
 
-        private void SetWindowState(WindowState c_windowState)
+        private void SetWindowState(WindowState cWindowState)
         {
-            if (CurrentWindowState == c_windowState)
+            if (CurrentWindowState == cWindowState)
             {
                 return;
             }
 
-            CurrentWindowState = c_windowState;
+            CurrentWindowState = cWindowState;
 
             WindowStateChanged?.Invoke(CurrentWindowState);
+        }
+
+        public static void LoadMediaSubtypeStrings()
+        {
+            var registeredSubtypes = typeof(MediaSubType).GetFields();
+
+            Dictionary<Guid, string> dictionary = new Dictionary<Guid, string>();
+
+            foreach (var subtype in registeredSubtypes)
+            {
+                var value = (Guid)subtype.GetValue(null);
+
+                if (!dictionary.ContainsKey(value))
+                {
+                    dictionary.Add(value, subtype.Name); 
+                }
+            }
+
+            dictionary.Add(new Guid("{34363258-0000-0010-8000-00aa00389b71}"), "X264");
+
+            MediaStubTypeDictionary = dictionary;
         }
 
         public static DsDevice CurrentInputVideoDevice
@@ -232,20 +357,12 @@ namespace TvFox
             set;
         }
 
-        public static Size SourceVideoSize
-        {
-            get;
-            set;
-        }
+        public static ContextMenu ContextMenu { get; private set; }
 
-        public static float SourceFrameRate
-        {
-            get;
-            set;
-        }
+        #region Main Entry Point
 
         [STAThread]
-        private static void Main(string[] c_args)
+        private static void Main(string[] cArgs)
         {
             Application.SetCompatibleTextRenderingDefault(true);
             Application.EnableVisualStyles();
@@ -261,28 +378,28 @@ namespace TvFox
 
         private static bool FindHardware()
         {
-            var a_videoDeviceList = DsDevice.GetDevicesOfCat(FilterCategory.VideoInputDevice);
+            var videoDeviceList = DsDevice.GetDevicesOfCat(FilterCategory.VideoInputDevice);
 
-            if (a_videoDeviceList.Length == 0)
+            if (videoDeviceList.Length == 0)
             {
                 return false;
             }
 
-            CurrentInputVideoDevice = a_videoDeviceList.First(c_device => c_device.Name.Contains("HD60 Pro"));
+            CurrentInputVideoDevice = videoDeviceList.First(cDevice => cDevice.Name.Contains("HD60 Pro"));
 
             if (CurrentInputVideoDevice == null)
             {
                 return false;
             }
 
-            var a_audioDeviceList = DsDevice.GetDevicesOfCat(FilterCategory.AudioInputDevice);
+            var audioDeviceList = DsDevice.GetDevicesOfCat(FilterCategory.AudioInputDevice);
 
-            if (a_audioDeviceList.Length == 0)
+            if (audioDeviceList.Length == 0)
             {
                 return false;
             }
 
-            CurrentInputAudioDevice = a_audioDeviceList.First(c_device => c_device.Name.Contains("HD60 Pro"));
+            CurrentInputAudioDevice = audioDeviceList.First(cDevice => cDevice.Name.Contains("HD60 Pro"));
 
             if (CurrentInputAudioDevice == null)
             {
@@ -292,55 +409,6 @@ namespace TvFox
             return true;
         }
 
-        /// <summary>
-        /// Enumerates all filters of the selected category and returns the IBaseFilter for the 
-        /// filter described in friendlyname
-        /// </summary>
-        /// <param name="c_category">Category of the filter</param>
-        /// <param name="c_friendlyname">Friendly name of the filter</param>
-        /// <returns>IBaseFilter for the device</returns>
-        public static IBaseFilter CreateFilter(Guid c_category, string c_friendlyname)
-        {
-            object a_source = null;
-            var a_iid = typeof(IBaseFilter).GUID;
-
-            foreach (var a_device in DsDevice.GetDevicesOfCat(c_category).Where(c_device => string.Compare(c_device.Name, c_friendlyname, StringComparison.Ordinal) == 0))
-            {
-                a_device.Mon.BindToObject(null, null, ref a_iid, out a_source);
-                break;
-            }
-
-            return (IBaseFilter)a_source;
-        }
-
-        /// <summary>
-        /// 
-        /// </summary>
-        /// <param name="c_filter"></param>
-        /// <param name="c_pinname"></param>
-        /// <returns></returns>
-        public static IPin GetPin(IBaseFilter c_filter, string c_pinname)
-        {
-            IEnumPins a_epins;
-            var a_hr = c_filter.EnumPins(out a_epins);
-            DsError.ThrowExceptionForHR(a_hr);
-            var a_fetched = Marshal.AllocCoTaskMem(4);
-            var a_pins = new IPin[1];
-
-            while (a_epins.Next(1, a_pins, a_fetched) == 0)
-            {
-                PinInfo a_pinfo;
-                a_pins[0].QueryPinInfo(out a_pinfo);
-                var a_found = (a_pinfo.name == c_pinname);
-                DsUtils.FreePinInfo(a_pinfo);
-
-                if (a_found)
-                {
-                    return a_pins[0];
-                }
-            }
-
-            return null;
-        }
+        #endregion
     }
 }
