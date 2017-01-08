@@ -130,5 +130,17 @@ namespace TvFox.Properties {
                 this["WindowState"] = value;
             }
         }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("False")]
+        public bool RunOnStartup {
+            get {
+                return ((bool)(this["RunOnStartup"]));
+            }
+            set {
+                this["RunOnStartup"] = value;
+            }
+        }
     }
 }

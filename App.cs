@@ -3,9 +3,11 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
 using System.Linq;
+using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
 using DirectShowLib;
+using Microsoft.Win32;
 using TvFox.Properties;
 
 // ReSharper disable SuspiciousTypeConversion.Global
@@ -56,6 +58,7 @@ namespace TvFox
         private MenuItem _contextMenuDebugShowFps;
 
         private VideoForm _videoForm;
+        private MenuItem _contextMenuSettingRunOnStartup;
 
         public App()
         {
@@ -105,19 +108,20 @@ namespace TvFox
             _contextMenu.MenuItems.Add(_contextMenuSignalDetection = new MenuItem { Text = "No Signal Detected", Enabled = false });
             _contextMenu.MenuItems.Add(_contextMenuVideoInfoData = new MenuItem { Text = "N/A", Enabled = false });
             _contextMenu.MenuItems.Add("-");
-            _contextMenu.MenuItems.Add("&About", (sender, args) => MessageBox.Show("Arf"));
+            _contextMenu.MenuItems.Add("&About", (sender, args) => new AboutBox().Show());
             _contextMenu.MenuItems.Add("E&xit", (cSender, cArgs) => ExitThread());
             _contextMenu.MenuItems[0].Click += (cSender, cArgs) => ToggleWindow();
 
             SetupSettingsMenu();
 
-            _trayIcon = new NotifyIcon { Text = "TvFox", Icon = Resources.TvFox, Visible = true, ContextMenu = _contextMenu };
+            _trayIcon = new NotifyIcon { Text = Application.ProductName, Icon = Resources.TvFox, Visible = true, ContextMenu = _contextMenu };
             _trayIcon.DoubleClick += (cSender, cArgs) => ToggleWindow();
 
             _timer = new Timer { Interval = 50 };
             _timer.Tick += (cSender, cArgs) => CheckSignalState();
             _timer.Start();
 
+            RunOnStartupCheck();
             ReadUserSettings();
         }
 
@@ -132,6 +136,8 @@ namespace TvFox
             {
                 Settings.Default.WindowSize = new Size(640, 480);
             }
+
+            Settings.Default.Save();
         }
 
         private void SetupSettingsMenu()
@@ -141,6 +147,7 @@ namespace TvFox
             _contextMenuSettings.MenuItems.Add(_contextMenuSettingSourceFramerate = new MenuItem());
             _contextMenuSettings.MenuItems.Add(_contextMenuSettingSourceFormat = new MenuItem());
             _contextMenuSettings.MenuItems.Add("-");
+
             _contextMenuSettings.MenuItems.Add(_contextMenuSettingDimensionLock = new MenuItem { Text = "Source Dimension Lock", Checked = Settings.Default.SourceDemensionLock });
             _contextMenuSettingDimensionLock.Click += (sender, args) =>
             {
@@ -148,6 +155,15 @@ namespace TvFox
                 Settings.Default.Save();
                 _videoForm?.HandleWindowResize();
             };
+
+            _contextMenuSettings.MenuItems.Add(_contextMenuSettingRunOnStartup = new MenuItem { Text = "Run On Windows Startup", Checked = Settings.Default.RunOnStartup });
+            _contextMenuSettingRunOnStartup.Click += (sender, args) =>
+            {
+                _contextMenuSettingRunOnStartup.Checked = Settings.Default.RunOnStartup = !Settings.Default.RunOnStartup;
+                Settings.Default.Save();
+                RunOnStartupToggle();
+            };
+
             _contextMenuSettings.MenuItems.Add("-");
             _contextMenuSettings.MenuItems.Add(_contextMenuDebug = new MenuItem { Text = "&Debug" });
             _contextMenuDebug.MenuItems.Add(_contextMenuDebugShowFps = new MenuItem {Text = "Display Fps", Checked = Settings.Default.ShowFps});
@@ -160,6 +176,40 @@ namespace TvFox
             };
         }
 
+        private static void RunOnStartupToggle()
+        {
+            var runOnStartupList = Registry.CurrentUser.OpenSubKey("SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run", true);
+
+            if (Settings.Default.RunOnStartup)
+            {
+                runOnStartupList?.SetValue(Application.ProductName, Application.ExecutablePath);
+            }
+            else
+            {
+                runOnStartupList?.DeleteValue(Application.ProductName);
+            }
+        }
+
+        private void RunOnStartupCheck()
+        {
+            var runOnStartupList = Registry.CurrentUser.OpenSubKey("SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run", true);
+
+            var value = (string)runOnStartupList?.GetValue(Application.ProductName);
+
+            if (value != null && value == Application.ExecutablePath)
+            {
+                Settings.Default.RunOnStartup = true;
+            }
+            else 
+            {
+                Settings.Default.RunOnStartup = false;
+            }
+
+            Settings.Default.Save();
+
+            _contextMenuSettingRunOnStartup.Checked = Settings.Default.RunOnStartup;
+        }
+
         private void SignalProcess()
         {
             var oldLocation = Settings.Default.WindowPosition;
@@ -169,7 +219,7 @@ namespace TvFox
                 BackColor = Color.Black,
                 Icon = Resources.TvFox,
                 ShowInTaskbar = true,
-                Text = "TvFox"
+                Text = Application.ProductName
             };
 
             _videoForm.ChangeFormat(Settings.Default.Frametime);
@@ -207,8 +257,8 @@ namespace TvFox
 
             _contextMenuShowHideWindow.Text = _videoForm.IsVisible() ? "Hide Window" : "Show Window";
 
-            // _contextMenuSettingSourceDevice.Enabled = hasSignal;
-            _contextMenuSettingSourceDevice.Text = hasSignal ? $"Device ({_videoForm?.SourceDevice})" : "Device";
+            _contextMenuSettingSourceDevice.Enabled = false;
+            _contextMenuSettingSourceDevice.Text = $"Device ({CurrentInputVideoDevice.Name})";
 
             _contextMenuSettingSourceResolution.Enabled = hasSignal;
             _contextMenuSettingSourceResolution.Text = hasSignal ? $"Resolution ({_videoForm?.SourceSize.Width}x{_videoForm?.SourceSize.Height})" : "Resolution";
@@ -221,6 +271,8 @@ namespace TvFox
             _contextMenuSettingSourceFormat.Enabled = hasSignal;
             _contextMenuSettingSourceFormat.Text = hasSignal ? $"Format ({_videoForm?.SourceFormat})" : "Format";
             _contextMenuSettingSourceFormat.MenuItems.Clear();
+
+            _contextMenuDebug.Enabled = hasSignal;
 
             if (hasSignal)
             {
