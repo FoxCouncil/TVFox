@@ -14,6 +14,8 @@ namespace TvFox
 {
     public sealed partial class VideoForm : Form
     {
+        #region Private Members
+
         private readonly DsDevice _videoIn;
         private readonly DsDevice _audioIn;
 
@@ -46,20 +48,35 @@ namespace TvFox
         private IPin _outAudioPin;
         private IPin _inAudioPin;
 
+        private Size _oldSize;
+        private Point _oldLocation;
+        private FormWindowState _oldState;
+
+        private int _centerTextVisibilityTimer = 0;
+
         private Dictionary<string, List<Tuple<Size, float, float>>> _supportedFormats = new Dictionary<string, List<Tuple<Size, float, float>>>();
 
-        const float KTargetRatio3X2 = 3f / 2f;
-        const float KTargetRatio16X9 = 16f / 9f;
-        const float KTargetRatio4X3 = 4f / 3f;
-        const float KTargetRatio16X10 = 16f / 10f;
+        #endregion
 
-        private const int KWmGraphNotify = 0x0400 + 13;
+        #region Private Constants
 
-        public bool ShouldClose
-        {
-            get;
-            set;
-        } = false;
+        private const float KTargetRatio3X2 = 3f / 2f;
+        private const float KTargetRatio16X9 = 16f / 9f;
+        private const float KTargetRatio4X3 = 4f / 3f;
+        private const float KTargetRatio16X10 = 16f / 10f;
+
+        private const int MaxVolume = 0;
+        private const int OffVolume = -4200;
+        private const int MinVolume = -10000;
+
+        private const int WmGraphNotify = 0x0400 + 13;
+        private const int CenterTextUiVisibilityTime = 15;
+
+        #endregion
+
+        #region Public Properties
+
+        public bool ShouldClose { get; set; } = false;
 
         public IReadOnlyDictionary<string, List<Tuple<Size, float, float>>> SupportedFormats => _supportedFormats;
 
@@ -73,21 +90,22 @@ namespace TvFox
 
         public string SourceDevice => _videoIn.Name;
 
+        #endregion
+
         public VideoForm(DsDevice videoIn, DsDevice audioIn)
         {
             StartPosition = FormStartPosition.Manual;
-            // ChangeFormat(59.9401779f);
 
             _videoIn = videoIn;
             _audioIn = audioIn;
 
-            Controls.Add(_videoContainer = new Control { BackColor = Color.Black });
+            Controls.Add(_videoContainer = new Control { BackColor = Color.Red });
 
             InitializeComponent();
 
-            Location = Properties.Settings.Default.WindowPosition;
-            Size = Properties.Settings.Default.WindowSize;
-            WindowState = Properties.Settings.Default.WindowState;
+            Location = Settings.Default.WindowPosition;
+            Size = Settings.Default.WindowSize;
+            WindowState = Settings.Default.WindowState;
 
             SetupEvents();
             SetupAudioOut();
@@ -108,8 +126,14 @@ namespace TvFox
 
             HandleWindowResize();
 
-            overlayTopLeft.Visible = Properties.Settings.Default.ShowFps;
+            overlayTopLeft.Visible = Settings.Default.ShowFps;
             overlayTopLeft.BringToFront();
+
+            overlayTopRight.Visible = Settings.Default.Mute;
+            overlayTopRight.BringToFront();
+
+            overlayBottomCenter.Visible = false;
+            overlayBottomCenter.BringToFront();
         }
 
         #region Setup Methods
@@ -120,21 +144,21 @@ namespace TvFox
             {
                 
 
-                if (!Properties.Settings.Default.Fullscreen)
+                if (!Settings.Default.Fullscreen)
                 {
-                    Properties.Settings.Default.WindowPosition = Location;
-                    Properties.Settings.Default.Save(); 
+                    Settings.Default.WindowPosition = Location;
+                    Settings.Default.Save(); 
                 }
             };
 
             SizeChanged += (sender, args) =>
             {
-                if (!Properties.Settings.Default.Fullscreen)
+                if (!Settings.Default.Fullscreen)
                 {
-                    Properties.Settings.Default.WindowSize = Size;
-                    Properties.Settings.Default.WindowState = WindowState;
+                    Settings.Default.WindowSize = Size;
+                    Settings.Default.WindowState = WindowState;
 
-                    Properties.Settings.Default.Save();
+                    Settings.Default.Save();
                 }
             };
 
@@ -168,11 +192,13 @@ namespace TvFox
                     throw new ArgumentOutOfRangeException();
                 }
 
-                FilterDispose();
-                AudioOutDispose();
+                // FilterDispose();
+                // AudioOutDispose();
+                DirectShowDispose();
             };
         
             MouseDown += (sender, args) => MouseClicked(args);
+            MouseWheel += (sender, args) => MouseWheeled(args);
             Resize += (sender, args) => HandleWindowResize();
             VisibleChanged += (sender, args) => HandleWindowVisibilityChange();
         }
@@ -212,7 +238,7 @@ namespace TvFox
 
             if (_mediaEvent != null)
             {
-                aHr = _mediaEvent.SetNotifyWindow(Handle, KWmGraphNotify, IntPtr.Zero);
+                aHr = _mediaEvent.SetNotifyWindow(Handle, WmGraphNotify, IntPtr.Zero);
                 DsError.ThrowExceptionForHR(aHr);
             }
 
@@ -311,16 +337,16 @@ namespace TvFox
             _currentMediaType = mediaType;
             _currentVideoInfo = (VideoInfoHeader)Marshal.PtrToStructure(_currentMediaType.formatPtr, typeof(VideoInfoHeader));
 
-            if (Properties.Settings.Default.Format == Guid.Empty)
+            if (Settings.Default.Format == Guid.Empty)
             {
-                Properties.Settings.Default.Format = _currentMediaType.subType;
-                Properties.Settings.Default.Save();
+                Settings.Default.Format = _currentMediaType.subType;
+                Settings.Default.Save();
             }
 
-            if (Properties.Settings.Default.Frametime == default(float))
+            if (Settings.Default.Frametime == default(float))
             {
-                Properties.Settings.Default.Frametime = SourceFrametime;
-                Properties.Settings.Default.Save();
+                Settings.Default.Frametime = SourceFrametime;
+                Settings.Default.Save();
             }
         }
 
@@ -343,8 +369,8 @@ namespace TvFox
             //hr = _graphBuilder.Disconnect(_outVideoPin);
             //DsError.ThrowExceptionForHR(hr);
 
-            Properties.Settings.Default.Frametime = frametime;
-            Properties.Settings.Default.Save();
+            Settings.Default.Frametime = frametime;
+            Settings.Default.Save();
 
             _currentVideoInfo.AvgTimePerFrame = (long)frametime;
 
@@ -369,51 +395,134 @@ namespace TvFox
 
         #endregion
 
+        #region Gets n Sets
+
+        private float GetSourceRatio()
+        {
+            var sourceSize = SourceSize;
+
+            return 1f * sourceSize.Width / sourceSize.Height;
+        }
+
         private int GetVideoDetails()
         {
             var aQualityProperties = _videoOutFilter as IQualProp;
 
-            int piAvgFrameRate;
+            var piAvgFrameRate = 0;
 
-            aQualityProperties.get_AvgFrameRate(out piAvgFrameRate);
+            aQualityProperties?.get_AvgFrameRate(out piAvgFrameRate);
 
             return piAvgFrameRate;
         }
 
-        private Size oldSize;
-        private Point oldLocation;
-        private FormWindowState oldState;
-
-        public void FullscreenToggle()
+        public void SetFullscreen(bool value)
         {
-            FullscreenSet(!Properties.Settings.Default.Fullscreen);
-        }
-
-        public void FullscreenSet(bool value)
-        {
-            Properties.Settings.Default.Fullscreen = value;
-            Properties.Settings.Default.Save();
+            Settings.Default.Fullscreen = value;
+            Settings.Default.Save();
 
             if (value)
             {
-                oldSize = Size;
-                oldLocation = Location;
-                oldState = WindowState;
+                _oldSize = Size;
+                _oldLocation = Location;
+                _oldState = WindowState;
 
                 FormBorderStyle = FormBorderStyle.None;
                 WindowState = FormWindowState.Maximized;
             }
             else
             {
-                WindowState = oldState;
+                WindowState = _oldState;
                 FormBorderStyle = FormBorderStyle.Sizable;
 
-                Location = oldLocation;
-                Size = oldSize;
+                Location = _oldLocation;
+                Size = _oldSize;
             }
 
             HandleWindowResize();
         }
+
+        public void SetVolume(int volume)
+        {
+            if (volume > MaxVolume)
+            {
+                volume = 0;
+            }
+            else if (volume < OffVolume && volume != MinVolume)
+            {
+                volume = OffVolume;
+            }
+            else if (volume < MinVolume)
+            {
+                volume = MinVolume;
+            }
+  
+            Settings.Default.Volume = volume;
+            Settings.Default.Save();
+
+            _basicAudio.put_Volume(volume);
+
+            if (volume == MinVolume)
+            {
+                return;
+            }
+
+            var absOffVol = Math.Abs(OffVolume);
+            var revVol = volume + absOffVol;
+            var percentageVol = .0d;
+
+            if (revVol != 0)
+            {
+                percentageVol = Math.Floor((float)revVol / absOffVol * 100);
+            }
+
+            var subCalc = percentageVol / 10;
+            var numOfVolBlocks = subCalc < 5 ? Math.Ceiling(subCalc) : Math.Floor(subCalc);
+
+            SetStatusText($"VOLUME |{new string('█', (int)numOfVolBlocks),-10}| {percentageVol,-3}");
+        }
+
+        public void SetStatusText(string text)
+        {
+            overlayBottomCenter.Text = text;
+
+            var x = Size.Width / 2 - overlayBottomCenter.Width / 2;
+            overlayBottomCenter.Location = new Point(x, overlayBottomCenter.Location.Y);
+
+            overlayBottomCenter.Visible = true;
+
+            _centerTextVisibilityTimer = CenterTextUiVisibilityTime;
+        }
+
+        #endregion
+
+        #region Toggles
+
+        public void ToggleFullscreen()
+        {
+            SetFullscreen(!Settings.Default.Fullscreen);
+        }
+
+        public void ToggleMute()
+        {
+            Settings.Default.Mute = !Settings.Default.Mute;
+
+            if (Settings.Default.Mute)
+            {
+                Settings.Default.MutedVolume = Settings.Default.Volume;
+                SetVolume(MinVolume);
+            }
+            else
+            {
+                SetVolume(Settings.Default.MutedVolume);
+                Settings.Default.MutedVolume = MaxVolume;
+            }
+
+            Settings.Default.Save();
+
+            overlayTopRight.Visible = Settings.Default.Mute;
+        }
+
+        #endregion
 
         #region Event Handlers
 
@@ -429,19 +538,29 @@ namespace TvFox
             }
         }
 
-        private float GetSourceRatio()
-        {
-            var sourceSize = SourceSize;
-
-            return 1f * sourceSize.Width / sourceSize.Height;
-        }
-
         public void HandleWindowResize()
         {
-            var sourceSize = SourceSize;
-            var sourceRatio = GetSourceRatio();
+            var sourceSize = new Size(0, 0);
+            var sourceRatio = 0.0f;
 
-            if (Properties.Settings.Default.SourceDemensionLock && WindowState != FormWindowState.Maximized && !Properties.Settings.Default.Fullscreen)
+            try
+            {
+                sourceSize = SourceSize;
+                sourceRatio = GetSourceRatio();
+            }
+            catch (Exception)
+            {
+                if (_currentVideoInfo != null)
+                {
+                    throw;
+                }
+
+                Debug.WriteLine("Video Info is null, not cleanly shutdown.");
+                Application.Exit();
+                return;
+            }
+
+            if (Settings.Default.SourceDemensionLock && WindowState != FormWindowState.Maximized && !Settings.Default.Fullscreen)
             {
                 ClientSize = sourceSize;
             }
@@ -461,7 +580,7 @@ namespace TvFox
                 }
             }
 
-            float windowRatio = 1f * ClientRectangle.Width / ClientRectangle.Height;
+            var windowRatio = 1f * ClientRectangle.Width / ClientRectangle.Height;
 
             if (windowRatio < sourceRatio)
             {
@@ -485,13 +604,9 @@ namespace TvFox
         {
             if (cArgs.Button == MouseButtons.Right)
             {
-                int volume;
-                _basicAudio.get_Volume(out volume);
-                Debug.WriteLine(volume);
-
                 App.ContextMenu.Show(this, cArgs.Location);
             }
-            else
+            else if (cArgs.Button == MouseButtons.Left)
             {
                 if (!_doubleClickCheck)
                 {
@@ -502,12 +617,45 @@ namespace TvFox
                 {
                     if (DateTime.Now - _doubleClickTimer < TimeSpan.FromSeconds(1))
                     {
-                        FullscreenToggle();
+                        ToggleFullscreen();
                     }
 
                     _doubleClickCheck = false;
                 }
             }
+            else if (cArgs.Button == MouseButtons.Middle)
+            {
+                ToggleMute();
+            }
+        }
+
+        private void MouseWheeled(MouseEventArgs args)
+        {
+            SetVolume(Settings.Default.Volume += args.Delta);
+        }
+
+        private void MainTimer_Tick(object sender, EventArgs e)
+        {
+            if (overlayBottomCenter.Visible)
+            {
+                _centerTextVisibilityTimer -= 1;
+
+                if (_centerTextVisibilityTimer < 0)
+                {
+                    _centerTextVisibilityTimer = 0;
+                    overlayBottomCenter.Visible = false;
+                }
+
+                Debug.WriteLine(_centerTextVisibilityTimer);
+            }
+
+            if (!Settings.Default.ShowFps)
+            {
+                return;
+            }
+
+            var framrate = GetVideoDetails() / 100f;
+            overlayTopLeft.Text = $"{framrate:F} fps";
         }
 
         #endregion
@@ -523,18 +671,21 @@ namespace TvFox
         {
             if (_videoInFilter != null)
             {
+                _videoInFilter.Stop();
                 Marshal.ReleaseComObject(_videoInFilter);
                 _videoInFilter = null;
             }
 
             if (_audioInFilter != null)
             {
+                _audioInFilter.Stop();
                 Marshal.ReleaseComObject(_audioInFilter);
                 _audioInFilter = null;
             }
 
             if (_audioOutFilter != null)
             {
+                _audioOutFilter.Stop();
                 Marshal.ReleaseComObject(_audioOutFilter);
                 _audioOutFilter = null;
             }
@@ -542,11 +693,9 @@ namespace TvFox
 
         public void DirectShowDispose()
         {
-            int aHr;
-
             DsUtils.FreeAMMediaType(_currentMediaType);
 
-            aHr = _mediaControl.Stop();
+            var aHr = _mediaControl.Stop();
             DsError.ThrowExceptionForHR(aHr);
 
             aHr = _mediaEvent.SetNotifyWindow(IntPtr.Zero, 0, IntPtr.Zero);
@@ -614,14 +763,5 @@ namespace TvFox
         }
 
         #endregion
-
-        private void mainTimer_Tick(object sender, EventArgs e)
-        {
-            if (Settings.Default.ShowFps)
-            {
-                var framrate = (float)GetVideoDetails() / 100f;
-                overlayTopLeft.Text = $"{framrate:F} fps";
-            }
-        }
     }
 }

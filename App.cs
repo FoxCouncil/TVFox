@@ -228,7 +228,7 @@ namespace TvFox
 
             _videoForm.Show();
 
-            _videoForm.FullscreenSet(Settings.Default.Fullscreen);
+            _videoForm.SetFullscreen(Settings.Default.Fullscreen);
 
             _videoForm.Location = oldLocation;
 
@@ -358,17 +358,17 @@ namespace TvFox
             StateChanged?.Invoke(CurrentState);
         }
 
-        private void SetWindowState(WindowState cWindowState)
-        {
-            if (CurrentWindowState == cWindowState)
-            {
-                return;
-            }
+        //private void SetWindowState(WindowState cWindowState)
+        //{
+        //    if (CurrentWindowState == cWindowState)
+        //    {
+        //        return;
+        //    }
 
-            CurrentWindowState = cWindowState;
+        //    CurrentWindowState = cWindowState;
 
-            WindowStateChanged?.Invoke(CurrentWindowState);
-        }
+        //    WindowStateChanged?.Invoke(CurrentWindowState);
+        //}
 
         public static void LoadMediaSubtypeStrings()
         {
