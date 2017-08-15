@@ -1,14 +1,9 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
-# Visual Studio 14
-VisualStudioVersion = 14.0.25420.1
+# Visual Studio 15
+VisualStudioVersion = 15.0.26730.3
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TvFox", "TvFox.csproj", "{49C17CCF-8F8E-49ED-9B29-67B22B4C2AAC}"
-EndProject
-Project("{6141683F-8A12-4E36-9623-2EB02B2C2303}") = "Setup", "Setup\Setup.isproj", "{7686A493-CE72-4C95-9E8B-2798DBF9730D}"
-	ProjectSection(ProjectDependencies) = postProject
-		{49C17CCF-8F8E-49ED-9B29-67B22B4C2AAC} = {49C17CCF-8F8E-49ED-9B29-67B22B4C2AAC}
-	EndProjectSection
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -29,18 +24,11 @@ Global
 		{49C17CCF-8F8E-49ED-9B29-67B22B4C2AAC}.Release|Any CPU.Build.0 = Release|Any CPU
 		{49C17CCF-8F8E-49ED-9B29-67B22B4C2AAC}.SingleImage|Any CPU.ActiveCfg = Release|Any CPU
 		{49C17CCF-8F8E-49ED-9B29-67B22B4C2AAC}.SingleImage|Any CPU.Build.0 = Release|Any CPU
-		{7686A493-CE72-4C95-9E8B-2798DBF9730D}.CD_ROM|Any CPU.ActiveCfg = CD_ROM
-		{7686A493-CE72-4C95-9E8B-2798DBF9730D}.CD_ROM|Any CPU.Build.0 = CD_ROM
-		{7686A493-CE72-4C95-9E8B-2798DBF9730D}.Debug|Any CPU.ActiveCfg = DVD-5
-		{7686A493-CE72-4C95-9E8B-2798DBF9730D}.Debug|Any CPU.Build.0 = DVD-5
-		{7686A493-CE72-4C95-9E8B-2798DBF9730D}.DVD-5|Any CPU.ActiveCfg = DVD-5
-		{7686A493-CE72-4C95-9E8B-2798DBF9730D}.DVD-5|Any CPU.Build.0 = DVD-5
-		{7686A493-CE72-4C95-9E8B-2798DBF9730D}.Release|Any CPU.ActiveCfg = SingleImage
-		{7686A493-CE72-4C95-9E8B-2798DBF9730D}.Release|Any CPU.Build.0 = SingleImage
-		{7686A493-CE72-4C95-9E8B-2798DBF9730D}.SingleImage|Any CPU.ActiveCfg = SingleImage
-		{7686A493-CE72-4C95-9E8B-2798DBF9730D}.SingleImage|Any CPU.Build.0 = SingleImage
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {ADCD6B2E-0072-4F47-899F-2D96F63ECAF0}
 	EndGlobalSection
 EndGlobal
