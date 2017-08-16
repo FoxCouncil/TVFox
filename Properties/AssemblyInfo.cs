@@ -5,11 +5,11 @@ using System.Runtime.InteropServices;
 // General Information about an assembly is controlled through the following 
 // set of attributes. Change these attribute values to modify the information
 // associated with an assembly.
-[assembly: AssemblyTitle("TvFox")]
-[assembly: AssemblyDescription("A utility to make your computer into a TV.")]
+[assembly: AssemblyTitle("TVFox")]
+[assembly: AssemblyDescription("Turns your desktop computer into a dumb TV.")]
 [assembly: AssemblyConfiguration("")]
-[assembly: AssemblyCompany("FoxCouncil")]
-[assembly: AssemblyProduct("TvFox")]
+[assembly: AssemblyCompany("FoxCouncil https://github.com/FoxCouncil")]
+[assembly: AssemblyProduct("TvFox https://github.com/FoxCouncil/TVFox")]
 [assembly: AssemblyCopyright("Fox Council 2017-2023")]
 [assembly: AssemblyTrademark("Fox Council")]
 [assembly: AssemblyCulture("")]
@@ -29,5 +29,5 @@ using System.Runtime.InteropServices;
 //      Build Number
 //      Revision
 //
-[assembly: AssemblyVersion("0.5.0.0")]
+[assembly: AssemblyVersion("1.0")]
 [assembly: AssemblyFileVersion("1.0.0.0")]

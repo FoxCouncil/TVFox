@@ -3,8 +3,6 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
 using System.Linq;
-using System.Reflection;
-using System.Runtime.InteropServices;
 using System.Windows.Forms;
 using DirectShowLib;
 using Microsoft.Win32;
@@ -24,7 +22,7 @@ namespace TvFox
         public static Dictionary<Guid, string> MediaStubTypeDictionary;
 
         public event Action<AppState> StateChanged;
-        public event Action<WindowState> WindowStateChanged;
+        // public event Action<WindowState> WindowStateChanged;
 
         public AppState CurrentState
         {
@@ -35,13 +33,10 @@ namespace TvFox
         public WindowState CurrentWindowState
         {
             get;
-            private set;
         } = WindowState.FirstStart;
 
-        private readonly Timer _timer;
         private readonly NotifyIcon _trayIcon;
 
-        private readonly ContextMenu _contextMenu;
         private readonly MenuItem _contextMenuShowHideWindow;
         private readonly MenuItem _contextMenuSettings;
         private readonly MenuItem _contextMenuSignalDetection;
@@ -62,6 +57,7 @@ namespace TvFox
 
         public App()
         {
+            ContextMenu contextMenu;
             LoadMediaSubtypeStrings();
 
             CurrentInputVideoSignalFilter = AppExtensions.CreateFilter(FilterCategory.VideoInputDevice, CurrentInputVideoDevice.Name);
@@ -100,32 +96,32 @@ namespace TvFox
                 }
             };
 
-            ContextMenu = _contextMenu = new ContextMenu();
-            _contextMenu.MenuItems.Add(_contextMenuShowHideWindow = new MenuItem { Text = "Show &Window", Enabled = false });
-            _contextMenu.MenuItems.Add("-");
-            _contextMenu.MenuItems.Add(_contextMenuSettings = new MenuItem { Text = "&Settings" });
-            _contextMenu.MenuItems.Add("-");
-            _contextMenu.MenuItems.Add(_contextMenuSignalDetection = new MenuItem { Text = "No Signal Detected", Enabled = false });
-            _contextMenu.MenuItems.Add(_contextMenuVideoInfoData = new MenuItem { Text = "N/A", Enabled = false });
-            _contextMenu.MenuItems.Add("-");
-            _contextMenu.MenuItems.Add("&About", (sender, args) => new AboutBox().Show());
-            _contextMenu.MenuItems.Add("E&xit", (cSender, cArgs) => ExitThread());
-            _contextMenu.MenuItems[0].Click += (cSender, cArgs) => ToggleWindow();
+            ContextMenu = contextMenu = new ContextMenu();
+            contextMenu.MenuItems.Add(_contextMenuShowHideWindow = new MenuItem { Text = "Show &Window", Enabled = false });
+            contextMenu.MenuItems.Add("-");
+            contextMenu.MenuItems.Add(_contextMenuSettings = new MenuItem { Text = "&Settings" });
+            contextMenu.MenuItems.Add("-");
+            contextMenu.MenuItems.Add(_contextMenuSignalDetection = new MenuItem { Text = "No Signal Detected", Enabled = false });
+            contextMenu.MenuItems.Add(_contextMenuVideoInfoData = new MenuItem { Text = "N/A", Enabled = false });
+            contextMenu.MenuItems.Add("-");
+            contextMenu.MenuItems.Add("&About", (sender, args) => new AboutBox().Show());
+            contextMenu.MenuItems.Add("E&xit", (cSender, cArgs) => ExitThread());
+            contextMenu.MenuItems[0].Click += (cSender, cArgs) => ToggleWindow();
 
             SetupSettingsMenu();
 
-            _trayIcon = new NotifyIcon { Text = Application.ProductName, Icon = Resources.TvFox, Visible = true, ContextMenu = _contextMenu };
+            _trayIcon = new NotifyIcon { Text = Application.ProductName, Icon = Resources.TvFox, Visible = true, ContextMenu = contextMenu };
             _trayIcon.DoubleClick += (cSender, cArgs) => ToggleWindow();
 
-            _timer = new Timer { Interval = 50 };
-            _timer.Tick += (cSender, cArgs) => CheckSignalState();
-            _timer.Start();
+            var timer = new Timer { Interval = 50 };
+            timer.Tick += (cSender, cArgs) => CheckSignalState();
+            timer.Start();
 
             RunOnStartupCheck();
             ReadUserSettings();
         }
 
-        private void ReadUserSettings()
+        private static void ReadUserSettings()
         {
             if (Settings.Default.WindowPosition == Point.Empty)
             {
@@ -166,7 +162,7 @@ namespace TvFox
 
             _contextMenuSettings.MenuItems.Add("-");
             _contextMenuSettings.MenuItems.Add(_contextMenuDebug = new MenuItem { Text = "&Debug" });
-            _contextMenuDebug.MenuItems.Add(_contextMenuDebugShowFps = new MenuItem {Text = "Display Fps", Checked = Settings.Default.ShowFps});
+            _contextMenuDebug.MenuItems.Add(_contextMenuDebugShowFps = new MenuItem {Text = "Display FPS", Checked = Settings.Default.ShowFps});
             _contextMenuDebugShowFps.Click += (sender, args) =>
             {
                 _contextMenuDebugShowFps.Checked = Settings.Default.ShowFps = !Settings.Default.ShowFps;
@@ -178,7 +174,7 @@ namespace TvFox
 
         private static void RunOnStartupToggle()
         {
-            var runOnStartupList = Registry.CurrentUser.OpenSubKey("SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run", true);
+            var runOnStartupList = Registry.CurrentUser.OpenSubKey(@"SOFTWARE\Microsoft\Windows\CurrentVersion\Run", true);
 
             if (Settings.Default.RunOnStartup)
             {
@@ -192,7 +188,7 @@ namespace TvFox
 
         private void RunOnStartupCheck()
         {
-            var runOnStartupList = Registry.CurrentUser.OpenSubKey("SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run", true);
+            var runOnStartupList = Registry.CurrentUser.OpenSubKey(@"SOFTWARE\Microsoft\Windows\CurrentVersion\Run", true);
 
             var value = (string)runOnStartupList?.GetValue(Application.ProductName);
 
@@ -274,7 +270,7 @@ namespace TvFox
 
             _contextMenuDebug.Enabled = hasSignal;
 
-            if (hasSignal)
+            if (hasSignal && _videoForm != null)
             {
                 foreach (var format in _videoForm.SupportedFormats.Keys)
                 {
@@ -283,7 +279,7 @@ namespace TvFox
 
                 var currentFormatSupported = _videoForm.SupportedFormats[_videoForm.SourceFormat];
 
-                HashSet<Size> foundSizes = new HashSet<Size>();
+                var foundSizes = new HashSet<Size>();
 
                 foreach (var subFormat in currentFormatSupported)
                 {
@@ -307,7 +303,7 @@ namespace TvFox
 
                 foreach (var frameRate in FrameRates)
                 {
-                    var frameRateOption = new MenuItem {Text = $"{frameRate:F} fps", Checked = frameRate == _videoForm.SourceFramerate, Tag = FrameTimes[index] };
+                    var frameRateOption = new MenuItem {Text = $"{frameRate:F} fps", Checked = Equals(frameRate, _videoForm.SourceFramerate), Tag = FrameTimes[index] };
                     frameRateOption.Click += (sender, args) => _videoForm.ChangeFormat((float)((MenuItem)sender).Tag);
                     _contextMenuSettingSourceFramerate.MenuItems.Add(frameRateOption);
 
@@ -318,7 +314,7 @@ namespace TvFox
             _contextMenuShowHideWindow.Enabled = hasSignal;
 
             _contextMenuSignalDetection.Text = hasSignal ? "Signal Detected:" : "No Signal Detected";
-            _contextMenuVideoInfoData.Text = hasSignal ? $"{_videoForm.SourceSize.Width}x{_videoForm.SourceSize.Height} {_videoForm.SourceFramerate:F} fps" : "N/A";
+            _contextMenuVideoInfoData.Text = hasSignal && _videoForm != null ? $"{_videoForm.SourceSize.Width}x{_videoForm.SourceSize.Height} {_videoForm.SourceFramerate:F} fps" : "N/A";
         }
 
         private void CheckSignalState()
@@ -358,23 +354,11 @@ namespace TvFox
             StateChanged?.Invoke(CurrentState);
         }
 
-        //private void SetWindowState(WindowState cWindowState)
-        //{
-        //    if (CurrentWindowState == cWindowState)
-        //    {
-        //        return;
-        //    }
-
-        //    CurrentWindowState = cWindowState;
-
-        //    WindowStateChanged?.Invoke(CurrentWindowState);
-        //}
-
         public static void LoadMediaSubtypeStrings()
         {
             var registeredSubtypes = typeof(MediaSubType).GetFields();
 
-            Dictionary<Guid, string> dictionary = new Dictionary<Guid, string>();
+            var dictionary = new Dictionary<Guid, string>();
 
             foreach (var subtype in registeredSubtypes)
             {
@@ -414,7 +398,7 @@ namespace TvFox
         #region Main Entry Point
 
         [STAThread]
-        private static void Main(string[] cArgs)
+        private static void Main()
         {
             Application.SetCompatibleTextRenderingDefault(true);
             Application.EnableVisualStyles();
