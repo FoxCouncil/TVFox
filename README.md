@@ -1,2 +1,2 @@
 # TVFox
-Workings with Elgato's HD60 internal card: http://amzn.to/2uGJMnv
+Works with Elgato's HD60 internal capture card: http://amzn.to/2uGJMnv
