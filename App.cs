@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Windows.Forms;
 using DirectShowLib;
 using Microsoft.Win32;
@@ -21,8 +22,9 @@ namespace TvFox
 
         public static Dictionary<Guid, string> MediaStubTypeDictionary;
 
+        private static bool _isMouseHidden;
+
         public event Action<AppState> StateChanged;
-        // public event Action<WindowState> WindowStateChanged;
 
         public AppState CurrentState
         {
@@ -215,7 +217,8 @@ namespace TvFox
                 BackColor = Color.Black,
                 Icon = Resources.TvFox,
                 ShowInTaskbar = true,
-                Text = Application.ProductName
+                Text = Application.ProductName,
+                KeyPreview = true
             };
 
             _videoForm.ChangeFormat(Settings.Default.Frametime);
@@ -224,7 +227,7 @@ namespace TvFox
 
             _videoForm.Show();
 
-            _videoForm.SetFullscreen(Settings.Default.Fullscreen);
+            _videoForm.FullscreenSet(Settings.Default.Fullscreen);
 
             _videoForm.Location = oldLocation;
 
@@ -393,6 +396,28 @@ namespace TvFox
             set;
         }
 
+        public static bool HideMouseCursor
+        {
+            get => _isMouseHidden;
+            set
+            {
+                if (value)
+                {
+                    if (_isMouseHidden) return;
+
+                    ShowCursor(false);
+                    _isMouseHidden = true;
+                }
+                else
+                {
+                    if (!_isMouseHidden) return;
+
+                    ShowCursor(true);
+                    _isMouseHidden = false;
+                }
+            }
+        }
+
         public static ContextMenu ContextMenu { get; private set; }
 
         #region Main Entry Point
@@ -444,6 +469,13 @@ namespace TvFox
 
             return true;
         }
+
+        #endregion
+
+        #region PInvoke
+
+        [DllImport("user32")]
+        private static extern int ShowCursor(bool bShow);
 
         #endregion
     }

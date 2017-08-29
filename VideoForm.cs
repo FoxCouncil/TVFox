@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.Drawing;
 using System.Linq;
 using System.Runtime.InteropServices;
+using System.Runtime.Remoting.Channels;
 using System.Windows.Forms;
 using DirectShowLib;
 using TvFox.Properties;
@@ -65,9 +66,10 @@ namespace TvFox
         private const float KTargetRatio4X3 = 4f / 3f;
         private const float KTargetRatio16X10 = 16f / 10f;
 
-        private const int MaxVolume = 0;
-        private const int OffVolume = -4200;
-        private const int MinVolume = -10000;
+        private const int VolumeMax = 0;
+        private const int VolumeOff = -4200;
+        private const int VolumeMin = -10000;
+        private const int VolumeStep = 42 * 2;
 
         private const int WmGraphNotify = 0x0400 + 13;
         private const int CenterTextUiVisibilityTime = 15;
@@ -89,6 +91,8 @@ namespace TvFox
         public string SourceFormat => App.MediaStubTypeDictionary[_currentMediaType.subType];
 
         public string SourceDevice => _videoIn.Name;
+
+        public bool IsFullscreen { get; private set; }
 
         #endregion
 
@@ -134,6 +138,8 @@ namespace TvFox
 
             overlayBottomCenter.Visible = false;
             overlayBottomCenter.BringToFront();
+
+            VolumeSet(Settings.Default.Mute ? VolumeOff : Settings.Default.Volume);
         }
 
         #region Setup Methods
@@ -142,63 +148,58 @@ namespace TvFox
         {
             LocationChanged += (sender, args) =>
             {
-                
+                if (Settings.Default.Fullscreen) return;
 
-                if (!Settings.Default.Fullscreen)
-                {
-                    Settings.Default.WindowPosition = Location;
-                    Settings.Default.Save(); 
-                }
+                Settings.Default.WindowPosition = Location;
+                Settings.Default.Save();
             };
 
             SizeChanged += (sender, args) =>
             {
-                if (!Settings.Default.Fullscreen)
-                {
-                    Settings.Default.WindowSize = Size;
-                    Settings.Default.WindowState = WindowState;
+                if (Settings.Default.Fullscreen) return;
 
-                    Settings.Default.Save();
-                }
+                Settings.Default.WindowSize = Size;
+                Settings.Default.WindowState = WindowState;
+
+                Settings.Default.Save();
             };
-
-            _videoContainer.MouseDown += (sender, args) => MouseClicked(args);
 
             FormClosing += (sender, args) =>
             {
                 switch (args.CloseReason)
                 {
                     case CloseReason.None:
-                    break;
+                        break;
                     case CloseReason.WindowsShutDown:
-                    break;
+                        break;
                     case CloseReason.MdiFormClosing:
-                    break;
+                        break;
                     case CloseReason.UserClosing:
-                    if (!ShouldClose)
-                    {
-                        args.Cancel = true;
-                        Hide();
-                        return;
-                    }
-                    break;
+                        if (!ShouldClose)
+                        {
+                            args.Cancel = true;
+                            Hide();
+                            return;
+                        }
+                        break;
                     case CloseReason.TaskManagerClosing:
-                    break;
+                        break;
                     case CloseReason.FormOwnerClosing:
-                    break;
+                        break;
                     case CloseReason.ApplicationExitCall:
-                    break;
+                        break;
                     default:
-                    throw new ArgumentOutOfRangeException();
+                        throw new ArgumentOutOfRangeException();
                 }
 
-                // FilterDispose();
-                // AudioOutDispose();
                 DirectShowDispose();
             };
-        
-            MouseDown += (sender, args) => MouseClicked(args);
-            MouseWheel += (sender, args) => MouseWheeled(args);
+
+            _videoContainer.KeyUp += (sender, args) => HandleKeyUp(args);
+            _videoContainer.MouseDown += (sender, args) => HandleMouseClick(args);
+
+            MouseDown += (sender, args) => HandleMouseClick(args);
+            MouseWheel += (sender, args) => HandleMouseWheel(args);
             Resize += (sender, args) => HandleWindowResize();
             VisibleChanged += (sender, args) => HandleWindowVisibilityChange();
         }
@@ -415,7 +416,7 @@ namespace TvFox
             return piAvgFrameRate;
         }
 
-        public void SetFullscreen(bool value)
+        public void FullscreenSet(bool value)
         {
             Settings.Default.Fullscreen = value;
             Settings.Default.Save();
@@ -438,22 +439,49 @@ namespace TvFox
                 Size = _oldSize;
             }
 
+            IsFullscreen = value;
+            App.HideMouseCursor = value;
+
             HandleWindowResize();
         }
 
-        public void SetVolume(int volume)
+        public void VolumeIncrement(int amount)
         {
-            if (volume > MaxVolume)
+            /* Maybe Later?
+            if (Settings.Default.Mute)
+            {
+                ToggleMute();
+                return;
+            }
+            */
+
+            VolumeSet(Settings.Default.Volume += amount);
+        }
+
+        public void VolumeDecrement(int amount)
+        {
+            VolumeSet(Settings.Default.Volume -= amount);
+        }
+
+        public void VolumeSet(int volume, bool showStatus = true)
+        {
+            if (volume > VolumeMax)
             {
                 volume = 0;
             }
-            else if (volume < OffVolume && volume != MinVolume)
+            else if (volume < VolumeOff && volume != VolumeMin)
             {
-                volume = OffVolume;
+                volume = VolumeOff;
             }
-            else if (volume < MinVolume)
+            else if (volume < VolumeMin)
             {
-                volume = MinVolume;
+                volume = VolumeMin;
+            }
+
+            if (Settings.Default.Mute)
+            {
+                volume = VolumeMin;
+                showStatus = false;
             }
   
             Settings.Default.Volume = volume;
@@ -461,12 +489,12 @@ namespace TvFox
 
             _basicAudio.put_Volume(volume);
 
-            if (volume == MinVolume)
+            if (volume == VolumeMin || !showStatus)
             {
                 return;
             }
 
-            var absOffVol = Math.Abs(OffVolume);
+            var absOffVol = Math.Abs(VolumeOff);
             var revVol = volume + absOffVol;
             var percentageVol = .0d;
 
@@ -499,7 +527,7 @@ namespace TvFox
 
         public void ToggleFullscreen()
         {
-            SetFullscreen(!Settings.Default.Fullscreen);
+            FullscreenSet(!Settings.Default.Fullscreen);
         }
 
         public void ToggleMute()
@@ -509,12 +537,13 @@ namespace TvFox
             if (Settings.Default.Mute)
             {
                 Settings.Default.MutedVolume = Settings.Default.Volume;
-                SetVolume(MinVolume);
+                VolumeSet(VolumeMin);
+                _centerTextVisibilityTimer = 0;
             }
             else
             {
-                SetVolume(Settings.Default.MutedVolume);
-                Settings.Default.MutedVolume = MaxVolume;
+                VolumeSet(Settings.Default.MutedVolume);
+                Settings.Default.MutedVolume = VolumeMax;
             }
 
             Settings.Default.Save();
@@ -600,10 +629,43 @@ namespace TvFox
             _videoWindow.SetWindowPosition(0, 0, _videoContainer.Width, _videoContainer.Height);
         }
 
-        private void MouseClicked(MouseEventArgs cArgs)
+        private void HandleKeyUp(KeyEventArgs args)
+        {
+            switch (args.KeyCode)
+            {
+                case Keys.Escape:
+                {
+                    if (IsFullscreen)
+                    {
+                        ToggleFullscreen();
+                    }
+                }
+                break;
+
+                case Keys.Enter:
+                {
+                    if ((args.Modifiers & Keys.Alt) != 0)
+                    {
+                        ToggleFullscreen();
+                    }
+                }
+                break;
+
+                case Keys.VolumeMute:
+                case Keys.Space:
+                {
+                    ToggleMute();
+                }
+                break;
+            }
+        }
+
+        private void HandleMouseClick(MouseEventArgs cArgs)
         {
             if (cArgs.Button == MouseButtons.Right)
             {
+                if (IsFullscreen) return;
+
                 App.ContextMenu.Show(this, cArgs.Location);
             }
             else if (cArgs.Button == MouseButtons.Left)
@@ -629,13 +691,35 @@ namespace TvFox
             }
         }
 
-        private void MouseWheeled(MouseEventArgs args)
+        private void HandleMouseWheel(MouseEventArgs args)
         {
-            SetVolume(Settings.Default.Volume += args.Delta);
+            if (args.Delta > 0)
+            {
+                VolumeIncrement(args.Delta);
+            }
+            else
+            {
+                VolumeDecrement(Math.Abs(args.Delta));
+            }
         }
 
-        private void MainTimer_Tick(object sender, EventArgs e)
+        private void HandleTimedKeyboardState()
         {
+            if (Keyboard.GetState(Keys.Up).IsPressed)
+            {
+                VolumeIncrement(VolumeStep);
+                
+            }
+            else if (Keyboard.GetState(Keys.Down).IsPressed)
+            {
+                VolumeDecrement(VolumeStep);
+            }
+        }
+
+        private void HandleTimerTick(object sender, EventArgs e)
+        {
+            HandleTimedKeyboardState();
+
             if (overlayBottomCenter.Visible)
             {
                 _centerTextVisibilityTimer -= 1;

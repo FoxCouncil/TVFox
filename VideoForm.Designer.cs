@@ -51,7 +51,7 @@
             // mainTimer
             // 
             this.mainTimer.Enabled = true;
-            this.mainTimer.Tick += new System.EventHandler(this.MainTimer_Tick);
+            this.mainTimer.Tick += new System.EventHandler(this.HandleTimerTick);
             // 
             // overlayTopRight
             // 
