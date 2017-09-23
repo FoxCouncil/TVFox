@@ -1,10 +1,19 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
+﻿#region Header
+
+//   !!  // TvFox - Keyboard.cs
+// *.-". // Created: 2017-08-28 [8:13 PM]
+//  | |  // Copyright 2017 The Fox Council 
+// Modified by: Fox Diller on 2017-09-22 @ 6:54 PM
+
+#endregion
+
+#region Usings
+
+using System;
 using System.Runtime.InteropServices;
-using System.Text;
-using System.Threading.Tasks;
 using System.Windows.Forms;
+
+#endregion
 
 namespace TvFox
 {
@@ -15,7 +24,7 @@ namespace TvFox
 
         public static KeyStateInfo GetState(Keys key)
         {
-            var keyState = GetKeyState((int)key);
+            var keyState = GetKeyState((int) key);
             var bits = BitConverter.GetBytes(keyState);
             bool toggled = bits[0] > 0, pressed = bits[1] > 0;
 

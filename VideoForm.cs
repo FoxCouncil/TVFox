@@ -1,13 +1,25 @@
-﻿using System;
+﻿#region Header
+
+//   !!  // TvFox - VideoForm.cs
+// *.-". // Created: 2017-01-03 [10:17 PM]
+//  | |  // Copyright 2017 The Fox Council 
+// Modified by: Fox Diller on 2017-09-22 @ 6:58 PM
+
+#endregion
+
+#region Usings
+
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
 using System.Linq;
 using System.Runtime.InteropServices;
-using System.Runtime.Remoting.Channels;
 using System.Windows.Forms;
 using DirectShowLib;
 using TvFox.Properties;
+
+#endregion
 
 // ReSharper disable SuspiciousTypeConversion.Global
 
@@ -15,87 +27,6 @@ namespace TvFox
 {
     public sealed partial class VideoForm : Form
     {
-        #region Private Members
-
-        private readonly DsDevice _videoIn;
-        private readonly DsDevice _audioIn;
-
-        private DsDevice _audioOut;
-
-        private IBaseFilter _videoInFilter;
-        private IBaseFilter _videoOutFilter;
-        private IBaseFilter _audioInFilter;
-        private IBaseFilter _audioOutFilter;
-
-        private IAMStreamConfig _streamConfig;
-        private IFilterGraph _filterGraph;
-        private IGraphBuilder _graphBuilder;
-        private IMediaControl _mediaControl;
-        private IVideoWindow _videoWindow;
-        private IMediaFilter _mediaFilter;
-        private IMediaEventEx _mediaEvent;
-        private IBasicAudio _basicAudio;
-
-        private bool _doubleClickCheck;
-        private DateTime _doubleClickTimer;
-
-        private Control _videoContainer;
-
-        private AMMediaType _currentMediaType;
-        private VideoInfoHeader _currentVideoInfo;
-
-        private IPin _outVideoPin;
-        private IPin _inVideoPin;
-        private IPin _outAudioPin;
-        private IPin _inAudioPin;
-
-        private Size _oldSize;
-        private Point _oldLocation;
-        private FormWindowState _oldState;
-
-        private int _centerTextVisibilityTimer = 0;
-
-        private Dictionary<string, List<Tuple<Size, float, float>>> _supportedFormats = new Dictionary<string, List<Tuple<Size, float, float>>>();
-
-        #endregion
-
-        #region Private Constants
-
-        private const float KTargetRatio3X2 = 3f / 2f;
-        private const float KTargetRatio16X9 = 16f / 9f;
-        private const float KTargetRatio4X3 = 4f / 3f;
-        private const float KTargetRatio16X10 = 16f / 10f;
-
-        private const int VolumeMax = 0;
-        private const int VolumeOff = -4200;
-        private const int VolumeMin = -10000;
-        private const int VolumeStep = 42 * 2;
-
-        private const int WmGraphNotify = 0x0400 + 13;
-        private const int CenterTextUiVisibilityTime = 15;
-
-        #endregion
-
-        #region Public Properties
-
-        public bool ShouldClose { get; set; } = false;
-
-        public IReadOnlyDictionary<string, List<Tuple<Size, float, float>>> SupportedFormats => _supportedFormats;
-
-        public Size SourceSize => new Size(_currentVideoInfo.BmiHeader.Width, _currentVideoInfo.BmiHeader.Height);
-
-        public float SourceFramerate => App.TenMill / SourceFrametime;
-
-        public float SourceFrametime => _currentVideoInfo.AvgTimePerFrame;
-
-        public string SourceFormat => App.MediaStubTypeDictionary[_currentMediaType.subType];
-
-        public string SourceDevice => _videoIn.Name;
-
-        public bool IsFullscreen { get; private set; }
-
-        #endregion
-
         public VideoForm(DsDevice videoIn, DsDevice audioIn)
         {
             StartPosition = FormStartPosition.Manual;
@@ -139,8 +70,87 @@ namespace TvFox
             overlayBottomCenter.Visible = false;
             overlayBottomCenter.BringToFront();
 
-            VolumeSet(Settings.Default.Mute ? VolumeOff : Settings.Default.Volume);
+            VolumeSet(Settings.Default.Mute ? VOLUME_OFF : Settings.Default.Volume);
+
+            _videoContainer.Focus();
         }
+
+        #region Private Members
+
+        private readonly DsDevice _videoIn;
+        private readonly DsDevice _audioIn;
+
+        private DsDevice _audioOut;
+
+        private IBaseFilter _videoInFilter;
+        private IBaseFilter _videoOutFilter;
+        private IBaseFilter _audioInFilter;
+        private IBaseFilter _audioOutFilter;
+
+        private IAMStreamConfig _streamConfig;
+        private IFilterGraph _filterGraph;
+        private IGraphBuilder _graphBuilder;
+        private IMediaControl _mediaControl;
+        private IVideoWindow _videoWindow;
+        private IMediaFilter _mediaFilter;
+        private IMediaEventEx _mediaEvent;
+        private IBasicAudio _basicAudio;
+
+        private bool _doubleClickCheck;
+        private DateTime _doubleClickTimer;
+        private DateTime _muteTime = DateTime.MinValue;
+
+        private readonly Control _videoContainer;
+
+        private AMMediaType _currentMediaType;
+        private VideoInfoHeader _currentVideoInfo;
+
+        private IPin _outVideoPin;
+        private IPin _inVideoPin;
+        private IPin _outAudioPin;
+        private IPin _inAudioPin;
+
+        private Size _oldSize;
+        private Point _oldLocation;
+        private FormWindowState _oldState;
+
+        private int _centerTextVisibilityTimer;
+
+        private readonly Dictionary<string, List<Tuple<Size, float, float>>> _supportedFormats = new Dictionary<string, List<Tuple<Size, float, float>>>();
+
+        #endregion
+
+        #region Private Constants
+
+        private const int VOLUME_MAX = 0;
+        private const int VOLUME_OFF = -4200;
+        private const int VOLUME_MIN = -10000;
+        private const int VOLUME_STEP = 42 * 2;
+
+        private const int WM_GRAPH_NOTIFY = 0x0400 + 13;
+        private const int CENTER_TEXT_UI_VISIBILITY_TIME = 15;
+
+        #endregion
+
+        #region Public Properties
+
+        public bool ShouldClose { get; set; } = false;
+
+        public IReadOnlyDictionary<string, List<Tuple<Size, float, float>>> SupportedFormats => _supportedFormats;
+
+        public Size SourceSize => new Size(_currentVideoInfo.BmiHeader.Width, _currentVideoInfo.BmiHeader.Height);
+
+        public float SourceFramerate => App.TEN_MILL / SourceFrametime;
+
+        public float SourceFrametime => _currentVideoInfo.AvgTimePerFrame;
+
+        public string SourceFormat => App.MediaStubTypeDictionary[_currentMediaType.subType];
+
+        public string SourceDevice => _videoIn.Name;
+
+        public bool IsFullscreen { get; private set; }
+
+        #endregion
 
         #region Setup Methods
 
@@ -148,7 +158,10 @@ namespace TvFox
         {
             LocationChanged += (sender, args) =>
             {
-                if (Settings.Default.Fullscreen) return;
+                if (Settings.Default.Fullscreen)
+                {
+                    return;
+                }
 
                 Settings.Default.WindowPosition = Location;
                 Settings.Default.Save();
@@ -156,7 +169,10 @@ namespace TvFox
 
             SizeChanged += (sender, args) =>
             {
-                if (Settings.Default.Fullscreen) return;
+                if (Settings.Default.Fullscreen)
+                {
+                    return;
+                }
 
                 Settings.Default.WindowSize = Size;
                 Settings.Default.WindowState = WindowState;
@@ -202,6 +218,37 @@ namespace TvFox
             MouseWheel += (sender, args) => HandleMouseWheel(args);
             Resize += (sender, args) => HandleWindowResize();
             VisibleChanged += (sender, args) => HandleWindowVisibilityChange();
+            Infrared.Remote += InfraredOnRemote;
+        }
+
+        private void InfraredOnRemote(CommandButtons commandButtons)
+        {
+            if (InvokeRequired)
+            {
+                Invoke(new Action<CommandButtons>(InfraredOnRemote), commandButtons);
+                return;
+            }
+
+            switch (commandButtons)
+            {
+                case CommandButtons.Mute:
+                {
+                    ToggleMute();
+                    break;
+                }
+
+                case CommandButtons.VolumeUp:
+                {
+                    VolumeIncrement(VOLUME_STEP);
+                    break;
+                }
+
+                case CommandButtons.VolumeDown:
+                {
+                    VolumeDecrement(VOLUME_STEP);
+                    break;
+                }
+            }
         }
 
         private void SetupAudioOut()
@@ -227,7 +274,7 @@ namespace TvFox
         {
             int aHr;
 
-            _filterGraph = (IFilterGraph)new FilterGraph();
+            _filterGraph = (IFilterGraph) new FilterGraph();
 
             //Create the Graph Builder
             _graphBuilder = _filterGraph as IGraphBuilder;
@@ -239,7 +286,7 @@ namespace TvFox
 
             if (_mediaEvent != null)
             {
-                aHr = _mediaEvent.SetNotifyWindow(Handle, WmGraphNotify, IntPtr.Zero);
+                aHr = _mediaEvent.SetNotifyWindow(Handle, WM_GRAPH_NOTIFY, IntPtr.Zero);
                 DsError.ThrowExceptionForHR(aHr);
             }
 
@@ -247,7 +294,7 @@ namespace TvFox
             aHr = _filterGraph.AddFilter(_videoInFilter, "Source Video Filter");
             DsError.ThrowExceptionForHR(aHr);
 
-            _videoOutFilter = (IBaseFilter)new VideoRenderer();
+            _videoOutFilter = (IBaseFilter) new VideoRenderer();
 
             aHr = _filterGraph.AddFilter(_videoOutFilter, "Video Renderer");
             DsError.ThrowExceptionForHR(aHr);
@@ -256,6 +303,11 @@ namespace TvFox
             _streamConfig = _outVideoPin as IAMStreamConfig;
 
             _inVideoPin = _videoOutFilter.GetPin("Input");
+
+            if (_graphBuilder == null)
+            {
+                throw new ApplicationException("DirectShow GraphBuilder object was null!");
+            }
 
             aHr = _graphBuilder.Connect(_outVideoPin, _inVideoPin);
             DsError.ThrowExceptionForHR(aHr);
@@ -269,6 +321,11 @@ namespace TvFox
 
             var aSyncReferenceSource = _audioOutFilter as IReferenceClock;
 
+            if (_mediaFilter == null)
+            {
+                throw new ApplicationException("DirectShow MediaFilter was null!");
+            }
+
             aHr = _mediaFilter.SetSyncSource(aSyncReferenceSource);
             DsError.ThrowExceptionForHR(aHr);
 
@@ -277,6 +334,11 @@ namespace TvFox
 
             aHr = _graphBuilder.Connect(_outAudioPin, _inAudioPin);
             DsError.ThrowExceptionForHR(aHr);
+
+            if (_videoWindow == null)
+            {
+                throw new ApplicationException("DirectShow IVideoWindow was null!");
+            }
 
             _videoWindow.put_Owner(_videoContainer.Handle);
             _videoWindow.put_MessageDrain(_videoContainer.Handle);
@@ -303,8 +365,8 @@ namespace TvFox
 
                 _streamConfig.GetStreamCaps(formatId, out pmtConfig, taskMemory);
 
-                var sourceFormatInfo = (VideoInfoHeader)Marshal.PtrToStructure(pmtConfig.formatPtr, typeof(VideoInfoHeader));
-                var sourceFormatCaps = (VideoStreamConfigCaps)Marshal.PtrToStructure(taskMemory, typeof(VideoStreamConfigCaps));
+                var sourceFormatInfo = (VideoInfoHeader) Marshal.PtrToStructure(pmtConfig.formatPtr, typeof(VideoInfoHeader));
+                var sourceFormatCaps = (VideoStreamConfigCaps) Marshal.PtrToStructure(taskMemory, typeof(VideoStreamConfigCaps));
 
                 var mediaFormatTypeName = App.MediaStubTypeDictionary[pmtConfig.subType];
 
@@ -316,7 +378,7 @@ namespace TvFox
                 var formatGeneric =
                     new Tuple<Size, float, float>(
                         new Size(sourceFormatInfo.BmiHeader.Width, sourceFormatInfo.BmiHeader.Height),
-                        1f * App.TenMill / sourceFormatCaps.MaxFrameInterval, 1f * App.TenMill / sourceFormatCaps.MinFrameInterval);
+                        1f * App.TEN_MILL / sourceFormatCaps.MaxFrameInterval, 1f * App.TEN_MILL / sourceFormatCaps.MinFrameInterval);
 
                 if (!_supportedFormats[mediaFormatTypeName].Contains(formatGeneric))
                 {
@@ -329,14 +391,12 @@ namespace TvFox
 
         private void DetectCurrentFormat()
         {
-            AMMediaType mediaType;
-
-            var hr = _streamConfig.GetFormat(out mediaType);
+            var hr = _streamConfig.GetFormat(out var mediaType);
 
             DsError.ThrowExceptionForHR(hr);
 
             _currentMediaType = mediaType;
-            _currentVideoInfo = (VideoInfoHeader)Marshal.PtrToStructure(_currentMediaType.formatPtr, typeof(VideoInfoHeader));
+            _currentVideoInfo = (VideoInfoHeader) Marshal.PtrToStructure(_currentMediaType.formatPtr, typeof(VideoInfoHeader));
 
             if (Settings.Default.Format == Guid.Empty)
             {
@@ -344,7 +404,7 @@ namespace TvFox
                 Settings.Default.Save();
             }
 
-            if (Settings.Default.Frametime == default(float))
+            if (Settings.Default.Frametime.Equals(default(float)))
             {
                 Settings.Default.Frametime = SourceFrametime;
                 Settings.Default.Save();
@@ -353,7 +413,7 @@ namespace TvFox
 
         public void ChangeFormat(float frametime, Size? videoSize = null, string format = null)
         {
-            if (SourceFrametime == frametime)
+            if (SourceFrametime.Equals(frametime))
             {
                 return;
             }
@@ -362,9 +422,7 @@ namespace TvFox
 
             Hide();
 
-            var hr = 0;
-
-            hr = _mediaControl.Stop();
+            var hr = _mediaControl.Stop();
             DsError.ThrowExceptionForHR(hr);
 
             //hr = _graphBuilder.Disconnect(_outVideoPin);
@@ -373,7 +431,7 @@ namespace TvFox
             Settings.Default.Frametime = frametime;
             Settings.Default.Save();
 
-            _currentVideoInfo.AvgTimePerFrame = (long)frametime;
+            _currentVideoInfo.AvgTimePerFrame = (long) frametime;
 
             Marshal.StructureToPtr(_currentVideoInfo, _currentMediaType.formatPtr, true);
 
@@ -390,7 +448,7 @@ namespace TvFox
 
             if (wasVisible)
             {
-                Show(); 
+                Show();
             }
         }
 
@@ -465,48 +523,48 @@ namespace TvFox
 
         public void VolumeSet(int volume, bool showStatus = true)
         {
-            if (volume > VolumeMax)
+            if (volume > VOLUME_MAX)
             {
                 volume = 0;
             }
-            else if (volume < VolumeOff && volume != VolumeMin)
+            else if (volume < VOLUME_OFF && volume != VOLUME_MIN)
             {
-                volume = VolumeOff;
+                volume = VOLUME_OFF;
             }
-            else if (volume < VolumeMin)
+            else if (volume < VOLUME_MIN)
             {
-                volume = VolumeMin;
+                volume = VOLUME_MIN;
             }
 
             if (Settings.Default.Mute)
             {
-                volume = VolumeMin;
+                volume = VOLUME_MIN;
                 showStatus = false;
             }
-  
+
             Settings.Default.Volume = volume;
             Settings.Default.Save();
 
             _basicAudio.put_Volume(volume);
 
-            if (volume == VolumeMin || !showStatus)
+            if (volume == VOLUME_MIN || !showStatus)
             {
                 return;
             }
 
-            var absOffVol = Math.Abs(VolumeOff);
+            var absOffVol = Math.Abs(VOLUME_OFF);
             var revVol = volume + absOffVol;
             var percentageVol = .0d;
 
             if (revVol != 0)
             {
-                percentageVol = Math.Floor((float)revVol / absOffVol * 100);
+                percentageVol = Math.Floor((float) revVol / absOffVol * 100);
             }
 
             var subCalc = percentageVol / 10;
             var numOfVolBlocks = subCalc < 5 ? Math.Ceiling(subCalc) : Math.Floor(subCalc);
 
-            SetStatusText($"VOLUME |{new string('█', (int)numOfVolBlocks),-10}| {percentageVol,-3}");
+            SetStatusText($"VOLUME |{new string('█', (int) numOfVolBlocks),-10}| {percentageVol,-3}");
         }
 
         public void SetStatusText(string text)
@@ -518,7 +576,7 @@ namespace TvFox
 
             overlayBottomCenter.Visible = true;
 
-            _centerTextVisibilityTimer = CenterTextUiVisibilityTime;
+            _centerTextVisibilityTimer = CENTER_TEXT_UI_VISIBILITY_TIME;
         }
 
         #endregion
@@ -532,23 +590,30 @@ namespace TvFox
 
         public void ToggleMute()
         {
+            if ((DateTime.Now - _muteTime).Milliseconds < 250)
+            {
+                return;
+            }
+
             Settings.Default.Mute = !Settings.Default.Mute;
 
             if (Settings.Default.Mute)
             {
                 Settings.Default.MutedVolume = Settings.Default.Volume;
-                VolumeSet(VolumeMin);
+                VolumeSet(VOLUME_MIN);
                 _centerTextVisibilityTimer = 0;
             }
             else
             {
                 VolumeSet(Settings.Default.MutedVolume);
-                Settings.Default.MutedVolume = VolumeMax;
+                Settings.Default.MutedVolume = VOLUME_MAX;
             }
 
             Settings.Default.Save();
 
             overlayTopRight.Visible = Settings.Default.Mute;
+
+            _muteTime = DateTime.Now;
         }
 
         #endregion
@@ -569,8 +634,8 @@ namespace TvFox
 
         public void HandleWindowResize()
         {
-            var sourceSize = new Size(0, 0);
-            var sourceRatio = 0.0f;
+            Size sourceSize;
+            float sourceRatio;
 
             try
             {
@@ -614,14 +679,14 @@ namespace TvFox
             if (windowRatio < sourceRatio)
             {
                 _videoContainer.Width = ClientRectangle.Width;
-                _videoContainer.Height = (int)(_videoContainer.Width / sourceRatio);
+                _videoContainer.Height = (int) (_videoContainer.Width / sourceRatio);
                 _videoContainer.Top = (ClientRectangle.Height - _videoContainer.Height) / 2;
                 _videoContainer.Left = 0;
             }
             else
             {
                 _videoContainer.Height = ClientRectangle.Height;
-                _videoContainer.Width = (int)(_videoContainer.Height * sourceRatio);
+                _videoContainer.Width = (int) (_videoContainer.Height * sourceRatio);
                 _videoContainer.Top = 0;
                 _videoContainer.Left = (ClientRectangle.Width - _videoContainer.Width) / 2;
             }
@@ -640,7 +705,7 @@ namespace TvFox
                         ToggleFullscreen();
                     }
                 }
-                break;
+                    break;
 
                 case Keys.Enter:
                 {
@@ -649,14 +714,14 @@ namespace TvFox
                         ToggleFullscreen();
                     }
                 }
-                break;
+                    break;
 
                 case Keys.VolumeMute:
                 case Keys.Space:
                 {
                     ToggleMute();
                 }
-                break;
+                    break;
             }
         }
 
@@ -664,7 +729,10 @@ namespace TvFox
         {
             if (cArgs.Button == MouseButtons.Right)
             {
-                if (IsFullscreen) return;
+                if (IsFullscreen)
+                {
+                    return;
+                }
 
                 App.ContextMenu.Show(this, cArgs.Location);
             }
@@ -705,14 +773,18 @@ namespace TvFox
 
         private void HandleTimedKeyboardState()
         {
+            if (!_videoContainer.Focused)
+            {
+                return;
+            }
+
             if (Keyboard.GetState(Keys.Up).IsPressed)
             {
-                VolumeIncrement(VolumeStep);
-                
+                VolumeIncrement(VOLUME_STEP);
             }
             else if (Keyboard.GetState(Keys.Down).IsPressed)
             {
-                VolumeDecrement(VolumeStep);
+                VolumeDecrement(VOLUME_STEP);
             }
         }
 
@@ -729,8 +801,6 @@ namespace TvFox
                     _centerTextVisibilityTimer = 0;
                     overlayBottomCenter.Visible = false;
                 }
-
-                Debug.WriteLine(_centerTextVisibilityTimer);
             }
 
             if (!Settings.Default.ShowFps)
@@ -745,35 +815,6 @@ namespace TvFox
         #endregion
 
         #region Dispose Methods
-
-        private void AudioOutDispose()
-        {
-            _audioOut?.Dispose();
-        }
-
-        private void FilterDispose()
-        {
-            if (_videoInFilter != null)
-            {
-                _videoInFilter.Stop();
-                Marshal.ReleaseComObject(_videoInFilter);
-                _videoInFilter = null;
-            }
-
-            if (_audioInFilter != null)
-            {
-                _audioInFilter.Stop();
-                Marshal.ReleaseComObject(_audioInFilter);
-                _audioInFilter = null;
-            }
-
-            if (_audioOutFilter != null)
-            {
-                _audioOutFilter.Stop();
-                Marshal.ReleaseComObject(_audioOutFilter);
-                _audioOutFilter = null;
-            }
-        }
 
         public void DirectShowDispose()
         {

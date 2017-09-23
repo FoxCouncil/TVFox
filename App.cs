@@ -1,4 +1,15 @@
-﻿using System;
+﻿#region Header
+
+//   !!  // TvFox - App.cs
+// *.-". // Created: 2017-01-03 [10:17 PM]
+//  | |  // Copyright 2017 The Fox Council 
+// Modified by: Fox Diller on 2017-09-22 @ 6:58 PM
+
+#endregion
+
+#region Usings
+
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
@@ -9,56 +20,51 @@ using DirectShowLib;
 using Microsoft.Win32;
 using TvFox.Properties;
 
+#endregion
+
 // ReSharper disable SuspiciousTypeConversion.Global
 
 namespace TvFox
 {
     internal class App : ApplicationContext
     {
-        public const float TenMill = 10000000f;
+        public const float TEN_MILL = 10000000f;
 
         public static readonly float[] FrameTimes = { 166833f, 200000f, 333667f, 400000f };
-        public static readonly float[] FrameRates = { (TenMill / FrameTimes[0]), TenMill / FrameTimes[1], TenMill / FrameTimes[2], TenMill / FrameTimes[3] };
+        public static readonly float[] FrameRates = { TEN_MILL / FrameTimes[0], TEN_MILL / FrameTimes[1], TEN_MILL / FrameTimes[2], TEN_MILL / FrameTimes[3] };
 
         public static Dictionary<Guid, string> MediaStubTypeDictionary;
 
         private static bool _isMouseHidden;
-
-        public event Action<AppState> StateChanged;
-
-        public AppState CurrentState
-        {
-            get;
-            private set;
-        } = AppState.FirstStart;
-
-        public WindowState CurrentWindowState
-        {
-            get;
-        } = WindowState.FirstStart;
-
-        private readonly NotifyIcon _trayIcon;
+        private readonly MenuItem _contextMenuSettings;
 
         private readonly MenuItem _contextMenuShowHideWindow;
-        private readonly MenuItem _contextMenuSettings;
         private readonly MenuItem _contextMenuSignalDetection;
         private readonly MenuItem _contextMenuVideoInfoData;
 
-        private MenuItem _contextMenuSettingSourceDevice;
-        private MenuItem _contextMenuSettingSourceResolution;
-        private MenuItem _contextMenuSettingSourceFramerate;
-        private MenuItem _contextMenuSettingSourceFormat;
-        private MenuItem _contextMenuSettingDimensionLock;
+        private readonly NotifyIcon _trayIcon;
 
         private MenuItem _contextMenuDebug;
 
         private MenuItem _contextMenuDebugShowFps;
+        private MenuItem _contextMenuSettingDimensionLock;
+        private MenuItem _contextMenuSettingRunOnStartup;
+
+        private MenuItem _contextMenuSettingSourceDevice;
+        private MenuItem _contextMenuSettingSourceFormat;
+        private MenuItem _contextMenuSettingSourceFramerate;
+        private MenuItem _contextMenuSettingSourceResolution;
 
         private VideoForm _videoForm;
-        private MenuItem _contextMenuSettingRunOnStartup;
+        private readonly Control _syncForm = new Control();
 
         public App()
         {
+            _syncForm.Show();
+            _syncForm.CreateControl();
+
+            Infrared.Initialize();
+
             ContextMenu contextMenu;
             LoadMediaSubtypeStrings();
 
@@ -66,6 +72,8 @@ namespace TvFox
 
             ThreadExit += (sender, args) =>
             {
+                Infrared.Dispose();
+
                 _trayIcon.Visible = false;
             };
 
@@ -75,25 +83,25 @@ namespace TvFox
                 {
                     case AppState.NoSignal:
                     {
-                        SignalDispose(); 
+                        SignalDispose();
                     }
-                    break;
+                        break;
 
                     case AppState.FirstStart:
                     {
-                        Debug.WriteLine("Welcome to TvFox"); 
+                        Debug.WriteLine("Welcome to TvFox");
                     }
-                    break;
+                        break;
 
                     case AppState.Signal:
                     {
-                        SignalProcess(); 
+                        SignalProcess();
                     }
-                    break;
+                        break;
 
                     default:
                     {
-                        throw new ArgumentOutOfRangeException(nameof(state), state, null); 
+                        throw new ArgumentOutOfRangeException(nameof(state), state, null);
                     }
                 }
             };
@@ -121,7 +129,66 @@ namespace TvFox
 
             RunOnStartupCheck();
             ReadUserSettings();
+
+            Infrared.Remote += InfraredOnRemote;
         }
+
+        private void InfraredOnRemote(CommandButtons commandButtons)
+        {
+            if (_syncForm.InvokeRequired)
+            {
+                _syncForm.Invoke(new Action<CommandButtons>(InfraredOnRemote), commandButtons);
+
+                return;
+            }
+
+            if (commandButtons == CommandButtons.Power)
+            {
+                ToggleWindow();
+            }
+        }
+
+        public AppState CurrentState { get; private set; } = AppState.FirstStart;
+
+        public WindowState CurrentWindowState { get; } = WindowState.FirstStart;
+
+        public static DsDevice CurrentInputVideoDevice { get; set; }
+
+        public static DsDevice CurrentInputAudioDevice { get; set; }
+
+        public static IBaseFilter CurrentInputVideoSignalFilter { get; set; }
+
+        public static bool HideMouseCursor
+        {
+            get => _isMouseHidden;
+            set
+            {
+                if (value)
+                {
+                    if (_isMouseHidden)
+                    {
+                        return;
+                    }
+
+                    ShowCursor(false);
+                    _isMouseHidden = true;
+                }
+                else
+                {
+                    if (!_isMouseHidden)
+                    {
+                        return;
+                    }
+
+                    ShowCursor(true);
+                    _isMouseHidden = false;
+                }
+            }
+        }
+
+        public static ContextMenu ContextMenu { get; private set; }
+
+        public event Action<AppState> StateChanged;
 
         private static void ReadUserSettings()
         {
@@ -164,7 +231,7 @@ namespace TvFox
 
             _contextMenuSettings.MenuItems.Add("-");
             _contextMenuSettings.MenuItems.Add(_contextMenuDebug = new MenuItem { Text = "&Debug" });
-            _contextMenuDebug.MenuItems.Add(_contextMenuDebugShowFps = new MenuItem {Text = "Display FPS", Checked = Settings.Default.ShowFps});
+            _contextMenuDebug.MenuItems.Add(_contextMenuDebugShowFps = new MenuItem { Text = "Display FPS", Checked = Settings.Default.ShowFps });
             _contextMenuDebugShowFps.Click += (sender, args) =>
             {
                 _contextMenuDebugShowFps.Checked = Settings.Default.ShowFps = !Settings.Default.ShowFps;
@@ -192,13 +259,13 @@ namespace TvFox
         {
             var runOnStartupList = Registry.CurrentUser.OpenSubKey(@"SOFTWARE\Microsoft\Windows\CurrentVersion\Run", true);
 
-            var value = (string)runOnStartupList?.GetValue(Application.ProductName);
+            var value = (string) runOnStartupList?.GetValue(Application.ProductName);
 
             if (value != null && value == Application.ExecutablePath)
             {
                 Settings.Default.RunOnStartup = true;
             }
-            else 
+            else
             {
                 Settings.Default.RunOnStartup = false;
             }
@@ -288,7 +355,7 @@ namespace TvFox
                 {
                     if (foundSizes.Contains(subFormat.Item1))
                     {
-                        continue; 
+                        continue;
                     }
 
                     _contextMenuSettingSourceResolution.MenuItems.Add(new MenuItem { Text = $"{subFormat.Item1.Width}x{subFormat.Item1.Height}", Checked = subFormat.Item1 == _videoForm.SourceSize });
@@ -306,8 +373,8 @@ namespace TvFox
 
                 foreach (var frameRate in FrameRates)
                 {
-                    var frameRateOption = new MenuItem {Text = $"{frameRate:F} fps", Checked = Equals(frameRate, _videoForm.SourceFramerate), Tag = FrameTimes[index] };
-                    frameRateOption.Click += (sender, args) => _videoForm.ChangeFormat((float)((MenuItem)sender).Tag);
+                    var frameRateOption = new MenuItem { Text = $"{frameRate:F} fps", Checked = Equals(frameRate, _videoForm.SourceFramerate), Tag = FrameTimes[index] };
+                    frameRateOption.Click += (sender, args) => _videoForm.ChangeFormat((float) ((MenuItem) sender).Tag);
                     _contextMenuSettingSourceFramerate.MenuItems.Add(frameRateOption);
 
                     index++;
@@ -365,11 +432,11 @@ namespace TvFox
 
             foreach (var subtype in registeredSubtypes)
             {
-                var value = (Guid)subtype.GetValue(null);
+                var value = (Guid) subtype.GetValue(null);
 
                 if (!dictionary.ContainsKey(value))
                 {
-                    dictionary.Add(value, subtype.Name); 
+                    dictionary.Add(value, subtype.Name);
                 }
             }
 
@@ -378,47 +445,12 @@ namespace TvFox
             MediaStubTypeDictionary = dictionary;
         }
 
-        public static DsDevice CurrentInputVideoDevice
-        {
-            get;
-            set;
-        }
+        #region PInvoke
 
-        public static DsDevice CurrentInputAudioDevice
-        {
-            get;
-            set;
-        }
+        [DllImport("user32")]
+        private static extern int ShowCursor(bool bShow);
 
-        public static IBaseFilter CurrentInputVideoSignalFilter
-        {
-            get;
-            set;
-        }
-
-        public static bool HideMouseCursor
-        {
-            get => _isMouseHidden;
-            set
-            {
-                if (value)
-                {
-                    if (_isMouseHidden) return;
-
-                    ShowCursor(false);
-                    _isMouseHidden = true;
-                }
-                else
-                {
-                    if (!_isMouseHidden) return;
-
-                    ShowCursor(true);
-                    _isMouseHidden = false;
-                }
-            }
-        }
-
-        public static ContextMenu ContextMenu { get; private set; }
+        #endregion
 
         #region Main Entry Point
 
@@ -469,13 +501,6 @@ namespace TvFox
 
             return true;
         }
-
-        #endregion
-
-        #region PInvoke
-
-        [DllImport("user32")]
-        private static extern int ShowCursor(bool bShow);
 
         #endregion
     }

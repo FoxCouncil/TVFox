@@ -1,15 +1,31 @@
-﻿using System;
+﻿#region Header
+
+//   !!  // TvFox - Extensions.cs
+// *.-". // Created: 2017-01-04 [5:20 PM]
+//  | |  // Copyright 2017 The Fox Council 
+// Modified by: Fox Diller on 2017-09-22 @ 6:55 PM
+
+#endregion
+
+#region Usings
+
+using System;
 using System.Drawing;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
 using DirectShowLib;
 
+#endregion
+
 namespace TvFox
 {
     public static class AppExtensions
     {
-        /// <summary>Enumerates all filters of the selected category and returns the IBaseFilter for the filter described in friendlyname</summary>
+        /// <summary>
+        ///     Enumerates all filters of the selected category and returns the IBaseFilter for the filter described in
+        ///     friendlyname
+        /// </summary>
         /// <param name="category">Category of the filter</param>
         /// <param name="friendlyname">Friendly name of the filter</param>
         /// <returns>IBaseFilter for the device</returns>
@@ -25,7 +41,7 @@ namespace TvFox
                 break;
             }
 
-            return (IBaseFilter)source;
+            return (IBaseFilter) source;
         }
 
         public static bool IsVisible(this Form form)
@@ -40,12 +56,7 @@ namespace TvFox
 
         public static string GetName(this IBaseFilter filter)
         {
-            var filterInfo = new FilterInfo();
-            var venderInfo = string.Empty;
-
-            filter.QueryVendorInfo(out venderInfo);
-
-            filter.QueryFilterInfo(out filterInfo);
+            filter.QueryVendorInfo(out var venderInfo);
 
             return venderInfo;
         }
@@ -56,9 +67,7 @@ namespace TvFox
         /// <returns></returns>
         public static IPin GetPin(this IBaseFilter filter, string pinname)
         {
-            IEnumPins epins;
-
-            var hr = filter.EnumPins(out epins);
+            var hr = filter.EnumPins(out var epins);
 
             DsError.ThrowExceptionForHR(hr);
 
@@ -67,10 +76,9 @@ namespace TvFox
 
             while (epins.Next(1, pins, fetched) == 0)
             {
-                PinInfo pinfo;
-                pins[0].QueryPinInfo(out pinfo);
+                pins[0].QueryPinInfo(out var pinfo);
 
-                var found = (pinfo.name == pinname);
+                var found = pinfo.name == pinname;
 
                 DsUtils.FreePinInfo(pinfo);
 
