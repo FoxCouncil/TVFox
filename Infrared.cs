@@ -67,6 +67,7 @@ namespace TvFox
 
         public static void Dispose()
         {
+            ReceiveDisable();
             EventsIgnore();
             DeviceRelease();
 
