@@ -1,22 +1,25 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
-# Visual Studio 15
-VisualStudioVersion = 15.0.26730.16
+# Visual Studio Version 16
+VisualStudioVersion = 16.0.30406.217
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TvFox", "TvFox.csproj", "{49C17CCF-8F8E-49ED-9B29-67B22B4C2AAC}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TVFox", "TVFox.csproj", "{B840AF91-5788-4081-9F85-73080EE0874B}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
 		Release|Any CPU = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
-		{49C17CCF-8F8E-49ED-9B29-67B22B4C2AAC}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{49C17CCF-8F8E-49ED-9B29-67B22B4C2AAC}.Release|Any CPU.Build.0 = Release|Any CPU
+		{B840AF91-5788-4081-9F85-73080EE0874B}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{B840AF91-5788-4081-9F85-73080EE0874B}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{B840AF91-5788-4081-9F85-73080EE0874B}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{B840AF91-5788-4081-9F85-73080EE0874B}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
-		SolutionGuid = {ADCD6B2E-0072-4F47-899F-2D96F63ECAF0}
+		SolutionGuid = {998B6CB2-454C-4EF5-A32A-0C5050554922}
 	EndGlobalSection
 EndGlobal

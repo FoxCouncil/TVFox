@@ -1,32 +1,88 @@
-﻿#region Header
+﻿//   !!  // TVFox
+// *.-". // MIT License
+//  | |  // Copyright 2020 The Fox Council 
 
-//   !!  // TvFox - VideoForm.cs
-// *.-". // Created: 2017-01-03 [10:17 PM]
-//  | |  // Copyright 2017 The Fox Council 
-// Modified by: Fox Diller on 2017-09-22 @ 6:58 PM
-
-#endregion
-
-#region Usings
-
+using DirectShowLib;
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.Drawing;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
-using DirectShowLib;
-using TvFox.Properties;
+using TVFox.Properties;
 
-#endregion
-
-// ReSharper disable SuspiciousTypeConversion.Global
-
-namespace TvFox
+namespace TVFox
 {
-    public sealed partial class VideoForm : Form
+    public partial class VideoForm : Form
     {
+        [DllImport("user32")]
+        private static extern short GetKeyState(int vKey);
+
+        private const int VOLUME_MAX = 0;
+        private const int VOLUME_OFF = -4200;
+        private const int VOLUME_MIN = -10000;
+        private const int VOLUME_STEP = 42 * 2;
+
+        private const int WM_GRAPH_NOTIFY = 0x0400 + 13;
+        private const int CENTER_TEXT_UI_VISIBILITY_TIME = 15;
+
+        private readonly DsDevice _videoIn;
+        private readonly DsDevice _audioIn;
+
+        private DsDevice _audioOut;
+
+        private IBaseFilter _videoInFilter;
+        private IBaseFilter _videoOutFilter;
+        private IBaseFilter _audioInFilter;
+        private IBaseFilter _audioOutFilter;
+
+        private IAMStreamConfig _streamConfig;
+        private IFilterGraph _filterGraph;
+        private IGraphBuilder _graphBuilder;
+        private IMediaControl _mediaControl;
+        private IVideoWindow _videoWindow;
+        private IMediaFilter _mediaFilter;
+        private IMediaEventEx _mediaEvent;
+        private IBasicAudio _basicAudio;
+
+        private bool _doubleClickCheck;
+        private DateTime _doubleClickTimer;
+        private DateTime _muteTime = DateTime.MinValue;
+
+        private readonly Control _videoContainer;
+
+        private AMMediaType _currentMediaType;
+        private VideoInfoHeader _currentVideoInfo;
+
+        private IPin _outVideoPin;
+        private IPin _inVideoPin;
+        private IPin _outAudioPin;
+        private IPin _inAudioPin;
+
+        private Size _oldSize;
+        private Point _oldLocation;
+        private FormWindowState _oldState;
+
+        private int _centerTextVisibilityTimer;
+
+        private readonly Dictionary<string, List<Tuple<Size, float, float>>> _supportedFormats = new Dictionary<string, List<Tuple<Size, float, float>>>();
+
+        public bool ShouldClose { get; set; } = false;
+
+        public IReadOnlyDictionary<string, List<Tuple<Size, float, float>>> SupportedFormats => _supportedFormats;
+
+        public Size SourceSize => new Size(_currentVideoInfo.BmiHeader.Width, _currentVideoInfo.BmiHeader.Height);
+
+        public float SourceFramerate => ValueConstants.TEN_MILL / SourceFrametime;
+
+        public float SourceFrametime => _currentVideoInfo.AvgTimePerFrame;
+
+        public string SourceFormat => TVFoxApp.MediaStubTypeDictionary[_currentMediaType.subType];
+
+        public string SourceDevice => _videoIn.Name;
+
+        public bool IsFullscreen { get; private set; }
+
         public VideoForm(DsDevice videoIn, DsDevice audioIn)
         {
             StartPosition = FormStartPosition.Manual;
@@ -75,82 +131,14 @@ namespace TvFox
             _videoContainer.Focus();
         }
 
-        #region Private Members
+        public static KeyStateInfo GetState(Keys key)
+        {
+            var keyState = GetKeyState((int) key);
+            var bits = BitConverter.GetBytes(keyState);
+            bool toggled = bits[0] > 0, pressed = bits[1] > 0;
 
-        private readonly DsDevice _videoIn;
-        private readonly DsDevice _audioIn;
-
-        private DsDevice _audioOut;
-
-        private IBaseFilter _videoInFilter;
-        private IBaseFilter _videoOutFilter;
-        private IBaseFilter _audioInFilter;
-        private IBaseFilter _audioOutFilter;
-
-        private IAMStreamConfig _streamConfig;
-        private IFilterGraph _filterGraph;
-        private IGraphBuilder _graphBuilder;
-        private IMediaControl _mediaControl;
-        private IVideoWindow _videoWindow;
-        private IMediaFilter _mediaFilter;
-        private IMediaEventEx _mediaEvent;
-        private IBasicAudio _basicAudio;
-
-        private bool _doubleClickCheck;
-        private DateTime _doubleClickTimer;
-        private DateTime _muteTime = DateTime.MinValue;
-
-        private readonly Control _videoContainer;
-
-        private AMMediaType _currentMediaType;
-        private VideoInfoHeader _currentVideoInfo;
-
-        private IPin _outVideoPin;
-        private IPin _inVideoPin;
-        private IPin _outAudioPin;
-        private IPin _inAudioPin;
-
-        private Size _oldSize;
-        private Point _oldLocation;
-        private FormWindowState _oldState;
-
-        private int _centerTextVisibilityTimer;
-
-        private readonly Dictionary<string, List<Tuple<Size, float, float>>> _supportedFormats = new Dictionary<string, List<Tuple<Size, float, float>>>();
-
-        #endregion
-
-        #region Private Constants
-
-        private const int VOLUME_MAX = 0;
-        private const int VOLUME_OFF = -4200;
-        private const int VOLUME_MIN = -10000;
-        private const int VOLUME_STEP = 42 * 2;
-
-        private const int WM_GRAPH_NOTIFY = 0x0400 + 13;
-        private const int CENTER_TEXT_UI_VISIBILITY_TIME = 15;
-
-        #endregion
-
-        #region Public Properties
-
-        public bool ShouldClose { get; set; } = false;
-
-        public IReadOnlyDictionary<string, List<Tuple<Size, float, float>>> SupportedFormats => _supportedFormats;
-
-        public Size SourceSize => new Size(_currentVideoInfo.BmiHeader.Width, _currentVideoInfo.BmiHeader.Height);
-
-        public float SourceFramerate => App.TEN_MILL / SourceFrametime;
-
-        public float SourceFrametime => _currentVideoInfo.AvgTimePerFrame;
-
-        public string SourceFormat => App.MediaStubTypeDictionary[_currentMediaType.subType];
-
-        public string SourceDevice => _videoIn.Name;
-
-        public bool IsFullscreen { get; private set; }
-
-        #endregion
+            return new KeyStateInfo(key, pressed, toggled);
+        }
 
         #region Setup Methods
 
@@ -218,37 +206,6 @@ namespace TvFox
             MouseWheel += (sender, args) => HandleMouseWheel(args);
             Resize += (sender, args) => HandleWindowResize();
             VisibleChanged += (sender, args) => HandleWindowVisibilityChange();
-            Infrared.Remote += InfraredOnRemote;
-        }
-
-        private void InfraredOnRemote(CommandButtons commandButtons)
-        {
-            if (InvokeRequired)
-            {
-                Invoke(new Action<CommandButtons>(InfraredOnRemote), commandButtons);
-                return;
-            }
-
-            switch (commandButtons)
-            {
-                case CommandButtons.Mute:
-                {
-                    ToggleMute();
-                    break;
-                }
-
-                case CommandButtons.VolumeUp:
-                {
-                    VolumeIncrement(VOLUME_STEP);
-                    break;
-                }
-
-                case CommandButtons.VolumeDown:
-                {
-                    VolumeDecrement(VOLUME_STEP);
-                    break;
-                }
-            }
         }
 
         private void SetupAudioOut()
@@ -265,9 +222,9 @@ namespace TvFox
 
         private void SetupFilter()
         {
-            _videoInFilter = AppExtensions.CreateFilter(FilterCategory.VideoInputDevice, _videoIn.Name);
-            _audioInFilter = AppExtensions.CreateFilter(FilterCategory.AudioInputDevice, _audioIn.Name);
-            _audioOutFilter = AppExtensions.CreateFilter(FilterCategory.AudioRendererCategory, _audioOut.Name);
+            _videoInFilter = DirectShowHelper.CreateFilter(FilterCategory.VideoInputDevice, _videoIn.Name);
+            _audioInFilter = DirectShowHelper.CreateFilter(FilterCategory.AudioInputDevice, _audioIn.Name);
+            _audioOutFilter = DirectShowHelper.CreateFilter(FilterCategory.AudioRendererCategory, _audioOut.Name);
         }
 
         public void SetupDirectShow()
@@ -368,7 +325,7 @@ namespace TvFox
                 var sourceFormatInfo = (VideoInfoHeader) Marshal.PtrToStructure(pmtConfig.formatPtr, typeof(VideoInfoHeader));
                 var sourceFormatCaps = (VideoStreamConfigCaps) Marshal.PtrToStructure(taskMemory, typeof(VideoStreamConfigCaps));
 
-                var mediaFormatTypeName = App.MediaStubTypeDictionary[pmtConfig.subType];
+                var mediaFormatTypeName = TVFoxApp.MediaStubTypeDictionary[pmtConfig.subType];
 
                 if (!_supportedFormats.ContainsKey(mediaFormatTypeName))
                 {
@@ -378,7 +335,7 @@ namespace TvFox
                 var formatGeneric =
                     new Tuple<Size, float, float>(
                         new Size(sourceFormatInfo.BmiHeader.Width, sourceFormatInfo.BmiHeader.Height),
-                        1f * App.TEN_MILL / sourceFormatCaps.MaxFrameInterval, 1f * App.TEN_MILL / sourceFormatCaps.MinFrameInterval);
+                        1f * ValueConstants.TEN_MILL / sourceFormatCaps.MaxFrameInterval, 1f * ValueConstants.TEN_MILL / sourceFormatCaps.MinFrameInterval);
 
                 if (!_supportedFormats[mediaFormatTypeName].Contains(formatGeneric))
                 {
@@ -498,7 +455,7 @@ namespace TvFox
             }
 
             IsFullscreen = value;
-            App.HideMouseCursor = value;
+            TVFoxApp.HideMouseCursor = value;
 
             HandleWindowResize();
         }
@@ -628,7 +585,7 @@ namespace TvFox
             }
             else
             {
-                _mediaControl.Pause();
+                _mediaControl.Stop();
             }
         }
 
@@ -649,8 +606,10 @@ namespace TvFox
                     throw;
                 }
 
-                Debug.WriteLine("Video Info is null, not cleanly shutdown.");
+                Console.WriteLine("Video Info is null, not cleanly shutdown.");
+
                 Application.Exit();
+                
                 return;
             }
 
@@ -734,7 +693,7 @@ namespace TvFox
                     return;
                 }
 
-                App.ContextMenu.Show(this, cArgs.Location);
+                TVFoxApp.ContextMenuStrip.Show(this, cArgs.Location);
             }
             else if (cArgs.Button == MouseButtons.Left)
             {
@@ -778,11 +737,11 @@ namespace TvFox
                 return;
             }
 
-            if (Keyboard.GetState(Keys.Up).IsPressed)
+            if (GetState(Keys.Up).IsPressed)
             {
                 VolumeIncrement(VOLUME_STEP);
             }
-            else if (Keyboard.GetState(Keys.Down).IsPressed)
+            else if (GetState(Keys.Down).IsPressed)
             {
                 VolumeDecrement(VOLUME_STEP);
             }
