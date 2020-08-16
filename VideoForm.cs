@@ -81,7 +81,13 @@ namespace TVFox
 
         public string SourceDevice => _videoIn.Name;
 
+        public bool IsMuted { get; private set; }
+
         public bool IsFullscreen { get; private set; }
+
+        public event Action FullscreenChanged;
+
+        public event Action MuteChanged;
 
         public VideoForm(DsDevice videoIn, DsDevice audioIn)
         {
@@ -127,6 +133,8 @@ namespace TVFox
             overlayBottomCenter.BringToFront();
 
             VolumeSet(Settings.Default.Mute ? VOLUME_OFF : Settings.Default.Volume);
+
+            IsMuted = Settings.Default.Mute;
 
             _videoContainer.Focus();
         }
@@ -543,11 +551,13 @@ namespace TVFox
         public void ToggleFullscreen()
         {
             FullscreenSet(!Settings.Default.Fullscreen);
+
+            FullscreenChanged?.Invoke();
         }
 
         public void ToggleMute()
         {
-            if ((DateTime.Now - _muteTime).Milliseconds < 250)
+            if ((DateTime.Now - _muteTime).Milliseconds < 50)
             {
                 return;
             }
@@ -569,6 +579,10 @@ namespace TVFox
             Settings.Default.Save();
 
             overlayTopRight.Visible = Settings.Default.Mute;
+
+            IsMuted = Settings.Default.Mute;
+            
+            MuteChanged?.Invoke();
 
             _muteTime = DateTime.Now;
         }
@@ -664,7 +678,7 @@ namespace TVFox
                         ToggleFullscreen();
                     }
                 }
-                    break;
+                break;
 
                 case Keys.Enter:
                 {
@@ -673,14 +687,22 @@ namespace TVFox
                         ToggleFullscreen();
                     }
                 }
-                    break;
+                break;
 
-                case Keys.VolumeMute:
+                case Keys.F:
+                {
+                    if ((args.Modifiers & Keys.Control) != 0)
+                    {
+                        ToggleFullscreen();
+                    }
+                }
+                break;
+
                 case Keys.Space:
                 {
                     ToggleMute();
                 }
-                    break;
+                break;
             }
         }
 
@@ -688,11 +710,6 @@ namespace TVFox
         {
             if (cArgs.Button == MouseButtons.Right)
             {
-                if (IsFullscreen)
-                {
-                    return;
-                }
-
                 TVFoxApp.ContextMenuStrip.Show(this, cArgs.Location);
             }
             else if (cArgs.Button == MouseButtons.Left)
@@ -704,7 +721,7 @@ namespace TVFox
                 }
                 else
                 {
-                    if (DateTime.Now - _doubleClickTimer < TimeSpan.FromSeconds(1))
+                    if (DateTime.Now - _doubleClickTimer < TimeSpan.FromSeconds(1.5))
                     {
                         ToggleFullscreen();
                     }
@@ -744,7 +761,7 @@ namespace TVFox
             else if (GetState(Keys.Down).IsPressed)
             {
                 VolumeDecrement(VOLUME_STEP);
-            }
+            }  
         }
 
         private void HandleTimerTick(object sender, EventArgs e)

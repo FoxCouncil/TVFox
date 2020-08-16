@@ -21,6 +21,9 @@ namespace TVFox
         [DllImport("user32")]
         private static extern int ShowCursor(bool bShow);
 
+        [DllImport("kernel32")]
+        private static extern EXECUTION_STATE SetThreadExecutionState(EXECUTION_STATE esFlags);
+
         private static bool _isMouseHidden;
 
         public const string DEVICE_DETECTION_STRING_KEY = "Game Capture ";
@@ -31,10 +34,13 @@ namespace TVFox
         private readonly NotifyIcon _trayIcon;
         private readonly Timer _timer;
 
+        private AboutForm _aboutForm;
         private VideoForm _videoForm;
 
         private ToolStripMenuItem _contextMenuSettings;
         private ToolStripMenuItem _contextMenuShowHideWindow;
+        private ToolStripMenuItem _contextMenuFullscreenWindow;
+        private ToolStripMenuItem _contextMenuMute;
         private ToolStripMenuItem _contextMenuSignalDetection;
         private ToolStripMenuItem _contextMenuVideoInfoData;
         private ToolStripMenuItem _contextMenuDebug;
@@ -87,6 +93,13 @@ namespace TVFox
             _timer = new Timer { Interval = 50 };
             _timer.Tick += (cSender, cArgs) => CheckSignalState();
             _timer.Start();
+
+            _aboutForm = new AboutForm();
+
+            Application.ApplicationExit += (sender, args) =>
+            {
+                _trayIcon.Visible = false;
+            };
         }
 
         public static bool HideMouseCursor
@@ -116,16 +129,18 @@ namespace TVFox
                 }
             }
         }
-
         private void ToggleWindow()
         {
-            if (_videoForm.Visible)
+            if (_videoForm != null)
             {
-                _videoForm.Hide();
-            }
-            else
-            {
-                _videoForm.Show();
+                if (_videoForm.Visible)
+                {
+                    _videoForm.Hide();
+                }
+                else
+                {
+                    _videoForm.Show();
+                }
             }
 
             UpdateContextMenu();
@@ -141,12 +156,34 @@ namespace TVFox
                 Icon = Resources.TvFox,
                 ShowInTaskbar = true,
                 Text = Application.ProductName,
-                KeyPreview = true
+                KeyPreview = true,
             };
 
             _videoForm.ChangeFormat(Settings.Default.Frametime);
 
-            _videoForm.VisibleChanged += (sender, args) => UpdateContextMenu();
+            _videoForm.VisibleChanged += (sender, args) => {
+
+                if (_videoForm.Visible)
+                {
+                    SetThreadExecutionState(EXECUTION_STATE.ES_CONTINUOUS | EXECUTION_STATE.ES_DISPLAY_REQUIRED  | EXECUTION_STATE.ES_SYSTEM_REQUIRED);
+                }
+                else
+                {
+                    SetThreadExecutionState(EXECUTION_STATE.ES_CONTINUOUS);
+                }
+
+                UpdateContextMenu();
+            };
+
+            _videoForm.FullscreenChanged += () =>
+            {
+                UpdateContextMenu();
+            };
+
+            _videoForm.MuteChanged += () =>
+            {
+                UpdateContextMenu();
+            };
 
             _videoForm.Show();
 
@@ -178,14 +215,30 @@ namespace TVFox
             ContextMenuStrip = new ContextMenuStrip();
             ContextMenuStrip.Items.Add(_contextMenuShowHideWindow = new ToolStripMenuItem { Text = "Show &Window", Enabled = false });
             ContextMenuStrip.Items.Add("-");
+            
+            ContextMenuStrip.Items.Add(_contextMenuFullscreenWindow = new ToolStripMenuItem { Text = "&Fullscreen", Enabled = false });
+            _contextMenuFullscreenWindow.Click += (sender, args) => _videoForm?.ToggleFullscreen();
+
+            ContextMenuStrip.Items.Add(_contextMenuMute = new ToolStripMenuItem { Text = "&Mute", Enabled = false });
+            _contextMenuMute.Click += (sender, args) => _videoForm?.ToggleMute();
+            
+            ContextMenuStrip.Items.Add("-");
             ContextMenuStrip.Items.Add(_contextMenuSettings = new ToolStripMenuItem { Text = "&Settings" });
             ContextMenuStrip.Items.Add("-");
             ContextMenuStrip.Items.Add(_contextMenuSignalDetection = new ToolStripMenuItem { Text = "No Signal Detected", Enabled = false });
             ContextMenuStrip.Items.Add(_contextMenuVideoInfoData = new ToolStripMenuItem { Text = "N/A", Enabled = false });
             ContextMenuStrip.Items.Add("-");
-            ContextMenuStrip.Items.Add("&About", null, (sender, args) => MessageBox.Show("TVFox, copyright The Fox Council"));
+            ContextMenuStrip.Items.Add("&About", null, (sender, args) => _aboutForm.ShowDialog());
             ContextMenuStrip.Items.Add("E&xit", null, (cSender, cArgs) => Application.Exit());
             ContextMenuStrip.Items[0].Click += (cSender, cArgs) => ToggleWindow();
+
+            ContextMenuStrip.VisibleChanged += (sender, args) =>
+            {
+                if (_videoForm != null && _videoForm.IsFullscreen)
+                {
+                    HideMouseCursor = !ContextMenuStrip.Visible;
+                }
+            };
 
             _contextMenuSettings.DropDownItems.Add(_contextMenuSettingSourceDevice = new ToolStripMenuItem { Enabled = false });
             _contextMenuSettings.DropDownItems.Add(_contextMenuSettingSourceResolution = new ToolStripMenuItem());
@@ -226,8 +279,16 @@ namespace TVFox
         private void UpdateContextMenu()
         {
             var hasSignal = CurrentState == TVFoxAppState.Signal;
+            var formVisible = (_videoForm?.Visible).GetValueOrDefault(false);
 
-            _contextMenuShowHideWindow.Text = (_videoForm?.Visible).GetValueOrDefault(false) ? "Hide Window" : "Show Window";
+            _contextMenuShowHideWindow.Text = formVisible ? "Hide Window" : "Show Window";
+            _contextMenuShowHideWindow.Enabled = hasSignal;
+
+            _contextMenuFullscreenWindow.Checked = (_videoForm?.IsFullscreen).GetValueOrDefault(false);
+            _contextMenuFullscreenWindow.Enabled = hasSignal && formVisible;
+            
+            _contextMenuMute.Checked = (_videoForm?.IsMuted).GetValueOrDefault(false);
+            _contextMenuMute.Enabled = hasSignal && formVisible;
 
             _contextMenuSettingSourceDevice.Enabled = false;
             _contextMenuSettingSourceDevice.Text = $"Device ({CurrentInputVideoDevice.Name})";
@@ -287,10 +348,18 @@ namespace TVFox
                 }
             }
 
-            _contextMenuShowHideWindow.Enabled = hasSignal;
-
             _contextMenuSignalDetection.Text = hasSignal ? "Signal Detected:" : "No Signal Detected";
-            _contextMenuVideoInfoData.Text = hasSignal && _videoForm != null ? $"{_videoForm.SourceSize.Width}x{_videoForm.SourceSize.Height} {_videoForm.SourceFramerate:F} fps" : "N/A";
+            
+            var videoStateString = _videoForm == null ? "NO SIGNAL" : $"{_videoForm.SourceSize.Width}x{_videoForm.SourceSize.Height} {_videoForm.SourceFramerate:F0}fps";
+
+            _contextMenuVideoInfoData.Text = hasSignal && _videoForm != null ? videoStateString : "N/A";
+
+            if (_videoForm != null)
+            {
+                _videoForm.Text = $"TVFox - {videoStateString} - https://github.com/FoxCouncil/TVFox";
+            }
+
+            RunOnStartupCheck();
         }
 
         private void CheckSignalState()
@@ -313,6 +382,26 @@ namespace TVFox
 
                 SignalDispose();
             }
+        }
+
+        private void RunOnStartupCheck()
+        {
+            var runOnStartupList = Registry.CurrentUser.OpenSubKey(@"SOFTWARE\Microsoft\Windows\CurrentVersion\Run", true);
+
+            var value = (string) runOnStartupList?.GetValue(Application.ProductName);
+
+            if (value != null && value == Application.ExecutablePath)
+            {
+                Settings.Default.RunOnStartup = true;
+            }
+            else
+            {
+                Settings.Default.RunOnStartup = false;
+            }
+
+            Settings.Default.Save();
+
+            _contextMenuSettingRunOnStartup.Checked = Settings.Default.RunOnStartup;
         }
 
         private static void RunOnStartupToggle()
@@ -365,7 +454,7 @@ namespace TVFox
         [STAThread]
         private static void Main()
         {
-            Application.SetHighDpiMode(HighDpiMode.SystemAware);
+            Application.SetHighDpiMode(HighDpiMode.DpiUnaware);
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
 

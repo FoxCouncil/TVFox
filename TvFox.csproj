@@ -5,7 +5,7 @@
     <TargetFramework>netcoreapp3.1</TargetFramework>
     <UseWindowsForms>true</UseWindowsForms>
     <StartupObject>TVFox.TVFoxApp</StartupObject>
-    <Version>2.0.0</Version>
+    <Version>2.0.1</Version>
     <NeutralLanguage>en-US</NeutralLanguage>
     <ApplicationIcon>Properties/TvFox.ico</ApplicationIcon>
     <PackageIcon>Properties/TvFox.ico</PackageIcon>
@@ -13,6 +13,12 @@
     <RepositoryType>GIT</RepositoryType>
     <Company>The Fox Council</Company>
     <Authors>Fox</Authors>
+    <Copyright>© Copyright 2020 The Fox Council</Copyright>
+    <Description>MIT Licensed
+
+https://github.com/FoxCouncil/TVFox
+
+From Vancouver, BC with Love 🍁</Description>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|AnyCPU'">
