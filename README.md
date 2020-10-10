@@ -9,4 +9,5 @@ So far, only works with Elgato's ([HD](https://www.elgato.com/en/gaming/game-cap
 - Japan: https://www.amazon.jp/s?k=elgato+internal
 - Australia: https://www.amazon.com.au/s?k=elgato+internal
 
+## Pitiful Amount Of Screenshots
 ![TVFox in action](https://i.imgur.com/VWwf2dq.png[/img)
