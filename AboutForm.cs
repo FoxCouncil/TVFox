@@ -1,15 +1,17 @@
-﻿using System;
-using System.Collections.Generic;
-using System.ComponentModel;
-using System.Drawing;
+﻿//   !!  // TVFox - https://github.com/FoxCouncil/TVFox
+// *.-". // MIT License
+//  | |  // Copyright 2020 The Fox Council 
+
 using System.Reflection;
 using System.Windows.Forms;
+using TVFox.Windows;
 
 namespace TVFox
 {
     partial class AboutForm : Form
     {
         private bool _wasMouseHidden;
+        private bool _wasAlwaysOnTop;
 
         public AboutForm()
         {
@@ -25,15 +27,28 @@ namespace TVFox
 
             VisibleChanged += (sender, args) =>
             {
-                if (Visible && TVFoxApp.HideMouseCursor)
+                if (Visible && Utilities.IsWindowAlwaysOnTop(TVFoxApp.VideoWindow?.Handle))
+                {
+                    _wasAlwaysOnTop = true;
+
+                    Utilities.SetAlwaysOnTop(TVFoxApp.VideoWindow?.Handle, false);
+                }
+                else if (!Visible && _wasAlwaysOnTop)
+                {
+                    Utilities.SetAlwaysOnTop(TVFoxApp.VideoWindow?.Handle, true);
+
+                    _wasAlwaysOnTop = false;
+                }
+
+                if (Visible && !Utilities.IsMouseVisible)
                 {
                     _wasMouseHidden = true;
 
-                    TVFoxApp.HideMouseCursor = false;
+                    Utilities.SetMouseVisibility(true);
                 }
                 else if (!Visible && _wasMouseHidden)
                 {
-                    TVFoxApp.HideMouseCursor = true;
+                    Utilities.SetMouseVisibility(false);
 
                     _wasMouseHidden = false;
                 }
@@ -47,15 +62,18 @@ namespace TVFox
             get
             {
                 object[] attributes = Assembly.GetExecutingAssembly().GetCustomAttributes(typeof(AssemblyTitleAttribute), false);
+
                 if (attributes.Length > 0)
                 {
                     AssemblyTitleAttribute titleAttribute = (AssemblyTitleAttribute)attributes[0];
+
                     if (titleAttribute.Title != "")
                     {
                         return titleAttribute.Title;
                     }
                 }
-                return System.IO.Path.GetFileNameWithoutExtension(Assembly.GetExecutingAssembly().CodeBase);
+
+                return "TVFox";
             }
         }
 

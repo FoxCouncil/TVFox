@@ -1,23 +1,22 @@
-﻿//   !!  // TVFox
+﻿//   !!  // TVFox - https://github.com/FoxCouncil/TVFox
 // *.-". // MIT License
 //  | |  // Copyright 2020 The Fox Council 
 
 using DirectShowLib;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Drawing;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
 using TVFox.Properties;
+using TVFox.Windows;
 
 namespace TVFox
 {
     public partial class VideoForm : Form
     {
-        [DllImport("user32")]
-        private static extern short GetKeyState(int vKey);
-
         private const int VOLUME_MAX = 0;
         private const int VOLUME_OFF = -4200;
         private const int VOLUME_MIN = -10000;
@@ -49,6 +48,8 @@ namespace TVFox
         private DateTime _doubleClickTimer;
         private DateTime _muteTime = DateTime.MinValue;
 
+        private bool _isResizing = false;
+
         private readonly Control _videoContainer;
 
         private AMMediaType _currentMediaType;
@@ -62,6 +63,8 @@ namespace TVFox
         private Size _oldSize;
         private Point _oldLocation;
         private FormWindowState _oldState;
+        private FormBorderStyle _oldBorderStyle = FormBorderStyle.Sizable;
+        private bool _oldAlwaysOnTop;
 
         private int _centerTextVisibilityTimer;
 
@@ -71,7 +74,15 @@ namespace TVFox
 
         public IReadOnlyDictionary<string, List<Tuple<Size, float, float>>> SupportedFormats => _supportedFormats;
 
-        public Size SourceSize => new Size(_currentVideoInfo.BmiHeader.Width, _currentVideoInfo.BmiHeader.Height);
+        public Size SourceSize => new Size(_currentVideoInfo?.BmiHeader?.Width ?? 1, _currentVideoInfo?.BmiHeader?.Height ?? 1);
+
+        public string SourceAspectRatio => CalculateRawAspectRatio(SourceSize.Width, SourceSize.Height);
+
+        public int SourceAspectGcd => GCD(SourceSize.Width, SourceSize.Height);
+
+        public double SourceRatioWidth => SourceSize.Width / SourceAspectGcd;
+
+        public double SourceRatioHeight => SourceSize.Height / SourceAspectGcd;
 
         public float SourceFramerate => ValueConstants.TEN_MILL / SourceFrametime;
 
@@ -96,15 +107,10 @@ namespace TVFox
             _videoIn = videoIn;
             _audioIn = audioIn;
 
-            Controls.Add(_videoContainer = new Control { BackColor = Color.Red });
+            Controls.Add(_videoContainer = new Control { BackColor = Color.Black });
 
             InitializeComponent();
 
-            Location = Settings.Default.WindowPosition;
-            Size = Settings.Default.WindowSize;
-            WindowState = Settings.Default.WindowState;
-
-            SetupEvents();
             SetupAudioOut();
             SetupFilter();
             SetupDirectShow();
@@ -121,7 +127,7 @@ namespace TVFox
 
             UpdateStyles();
 
-            HandleWindowResize();
+            SetupEvents();
 
             overlayTopLeft.Visible = Settings.Default.ShowFps;
             overlayTopLeft.BringToFront();
@@ -136,16 +142,37 @@ namespace TVFox
 
             IsMuted = Settings.Default.Mute;
 
+            Utilities.SetAlwaysOnTop(Handle, Settings.Default.AlwaysOnTop);
+
             _videoContainer.Focus();
+
+            WindowState = Settings.Default.WindowState;
+            FormBorderStyle = Settings.Default.BorderStyle;
         }
 
         public static KeyStateInfo GetState(Keys key)
         {
-            var keyState = GetKeyState((int) key);
+            var keyState = Utilities.GetKeyState((int)key);
             var bits = BitConverter.GetBytes(keyState);
             bool toggled = bits[0] > 0, pressed = bits[1] > 0;
-
             return new KeyStateInfo(key, pressed, toggled);
+        }
+
+        public static int GCD(int a, int b)
+        {
+            while (b != 0)
+            {
+                int remainder = a % b;
+                a = b;
+                b = remainder;
+            }
+
+            return a;
+        }
+
+        public static string CalculateRawAspectRatio(int width, int height)
+        {
+            return string.Format("{0}:{1}", width / GCD(width, height), height / GCD(width, height));
         }
 
         #region Setup Methods
@@ -154,7 +181,7 @@ namespace TVFox
         {
             LocationChanged += (sender, args) =>
             {
-                if (Settings.Default.Fullscreen)
+                if (Settings.Default.Fullscreen || WindowState == FormWindowState.Maximized || WindowState == FormWindowState.Minimized)
                 {
                     return;
                 }
@@ -165,12 +192,12 @@ namespace TVFox
 
             SizeChanged += (sender, args) =>
             {
-                if (Settings.Default.Fullscreen)
+                if (Settings.Default.Fullscreen || WindowState == FormWindowState.Maximized || WindowState == FormWindowState.Minimized)
                 {
                     return;
                 }
 
-                Settings.Default.WindowSize = Size;
+                Settings.Default.WindowSize = _oldSize = Size;
                 Settings.Default.WindowState = WindowState;
 
                 Settings.Default.Save();
@@ -317,18 +344,13 @@ namespace TVFox
 
         private void DetectAllFormats()
         {
-            int formatCount;
-            int formatSize;
-
-            _streamConfig.GetNumberOfCapabilities(out formatCount, out formatSize);
+            _streamConfig.GetNumberOfCapabilities(out int formatCount, out int formatSize);
 
             var taskMemory = Marshal.AllocCoTaskMem(formatSize);
 
             for (var formatId = 0; formatId < formatCount; formatId++)
             {
-                AMMediaType pmtConfig;
-
-                _streamConfig.GetStreamCaps(formatId, out pmtConfig, taskMemory);
+                _streamConfig.GetStreamCaps(formatId, out AMMediaType pmtConfig, taskMemory);
 
                 var sourceFormatInfo = (VideoInfoHeader) Marshal.PtrToStructure(pmtConfig.formatPtr, typeof(VideoInfoHeader));
                 var sourceFormatCaps = (VideoStreamConfigCaps) Marshal.PtrToStructure(taskMemory, typeof(VideoStreamConfigCaps));
@@ -361,7 +383,7 @@ namespace TVFox
             DsError.ThrowExceptionForHR(hr);
 
             _currentMediaType = mediaType;
-            _currentVideoInfo = (VideoInfoHeader) Marshal.PtrToStructure(_currentMediaType.formatPtr, typeof(VideoInfoHeader));
+            _currentVideoInfo = (VideoInfoHeader)Marshal.PtrToStructure(_currentMediaType.formatPtr, typeof(VideoInfoHeader));
 
             if (Settings.Default.Format == Guid.Empty)
             {
@@ -369,7 +391,7 @@ namespace TVFox
                 Settings.Default.Save();
             }
 
-            if (Settings.Default.Frametime.Equals(default(float)))
+            if (Settings.Default.Frametime.Equals(default))
             {
                 Settings.Default.Frametime = SourceFrametime;
                 Settings.Default.Save();
@@ -441,6 +463,11 @@ namespace TVFox
 
         public void FullscreenSet(bool value)
         {
+            if (Settings.Default.Fullscreen == value)
+            {
+                return;
+            }
+
             Settings.Default.Fullscreen = value;
             Settings.Default.Save();
 
@@ -449,23 +476,38 @@ namespace TVFox
                 _oldSize = Size;
                 _oldLocation = Location;
                 _oldState = WindowState;
+                _oldBorderStyle = FormBorderStyle;
+                _oldAlwaysOnTop = Utilities.IsWindowAlwaysOnTop(Handle);
 
                 FormBorderStyle = FormBorderStyle.None;
                 WindowState = FormWindowState.Maximized;
+
+                Utilities.SetAlwaysOnTop(Handle, false);
             }
             else
             {
                 WindowState = _oldState;
-                FormBorderStyle = FormBorderStyle.Sizable;
+                FormBorderStyle = _oldBorderStyle;
 
-                Location = _oldLocation;
-                Size = _oldSize;
+                if (_oldLocation != Point.Empty)
+                {
+                    Location = _oldLocation;
+                }
+
+                if (_oldSize != Size.Empty)
+                {
+                    Size = _oldSize;
+                }
+
+                if (_oldAlwaysOnTop)
+                {
+                    Utilities.SetAlwaysOnTop(Handle, _oldAlwaysOnTop);
+                    _oldAlwaysOnTop = false;
+                }
             }
 
             IsFullscreen = value;
-            TVFoxApp.HideMouseCursor = value;
-
-            HandleWindowResize();
+            Utilities.SetMouseVisibility(!value);
         }
 
         public void VolumeIncrement(int amount)
@@ -605,6 +647,13 @@ namespace TVFox
 
         public void HandleWindowResize()
         {
+            if (_isResizing)
+            {
+                return;
+            }
+
+            _isResizing = true;
+
             Size sourceSize;
             float sourceRatio;
 
@@ -627,23 +676,22 @@ namespace TVFox
                 return;
             }
 
-            if (Settings.Default.SourceDemensionLock && WindowState != FormWindowState.Maximized && !Settings.Default.Fullscreen)
+            if (Settings.Default.SourceDemensionLock && WindowState != FormWindowState.Maximized && !Settings.Default.Fullscreen && !Settings.Default.SourceRatioLock) 
             {
                 ClientSize = sourceSize;
             }
-            else
+
+            if (Settings.Default.SourceRatioLock)
             {
-                var minWidth = sourceSize.Width / 2;
-                var minHeight = sourceSize.Height / 2;
+                var diff = Size - _oldSize;
 
-                if (Width <= minWidth)
+                if (Math.Abs(diff.Width) > Math.Abs(diff.Height))
                 {
-                    Width = minWidth;
+                    ClientSize = new Size(ClientSize.Width, (int)(SourceRatioHeight * ClientSize.Width / SourceRatioWidth));
                 }
-
-                if (Height <= minHeight)
+                else
                 {
-                    Height = minHeight;
+                    ClientSize = new Size((int)(SourceRatioWidth * ClientSize.Height / SourceRatioHeight), ClientSize.Height);
                 }
             }
 
@@ -665,6 +713,8 @@ namespace TVFox
             }
 
             _videoWindow.SetWindowPosition(0, 0, _videoContainer.Width, _videoContainer.Height);
+
+            _isResizing = false;
         }
 
         private void HandleKeyUp(KeyEventArgs args)
@@ -837,6 +887,11 @@ namespace TVFox
 
             Marshal.ReleaseComObject(_audioOutFilter);
             _audioOutFilter = null;
+
+            // Reset the owner to NULL before releasing the Filter Graph Manager. 
+            // Otherwise, messages will continue to be sent to this window and errors will likely occur when the application is terminated.
+            // https://docs.microsoft.com/en-us/windows/win32/api/control/nf-control-ivideowindow-put_owner
+            _videoWindow.put_Owner(IntPtr.Zero);
 
             _graphBuilder = null;
             _mediaControl = null;

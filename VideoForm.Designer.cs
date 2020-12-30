@@ -83,14 +83,15 @@
             // 
             // VideoForm
             // 
-            this.AutoScaleDimensions = new System.Drawing.SizeF(10F, 25F);
-            this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
+            this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.None;
             this.ClientSize = new System.Drawing.Size(1308, 805);
             this.Controls.Add(this.overlayBottomCenter);
             this.Controls.Add(this.overlayTopRight);
             this.Controls.Add(this.overlayTopLeft);
             this.Margin = new System.Windows.Forms.Padding(4, 6, 4, 6);
+            this.MinimumSize = new System.Drawing.Size(320, 240);
             this.Name = "VideoForm";
+            this.StartPosition = System.Windows.Forms.FormStartPosition.WindowsDefaultBounds;
             this.Text = "TvFox";
             this.ResumeLayout(false);
             this.PerformLayout();

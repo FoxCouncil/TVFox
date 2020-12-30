@@ -1,4 +1,4 @@
-﻿//   !!  // TVFox
+﻿//   !!  // TVFox - https://github.com/FoxCouncil/TVFox
 // *.-". // MIT License
 //  | |  // Copyright 2020 The Fox Council 
 

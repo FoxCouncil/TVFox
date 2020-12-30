@@ -1,3 +1,7 @@
+//   !!  // TVFox - https://github.com/FoxCouncil/TVFox
+// *.-". // MIT License
+//  | |  // Copyright 2020 The Fox Council 
+
 using System.Runtime.InteropServices;
 
 // In SDK-style projects such as this one, several assembly attributes that were historically
