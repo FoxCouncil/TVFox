@@ -296,7 +296,7 @@ namespace TVFox
             _contextMenuMute.Checked = (VideoWindow?.IsMuted).GetValueOrDefault(false);
             _contextMenuMute.Enabled = hasSignal && formVisible;
 
-            _contextMenuBorderless.Enabled = _contextMenuAlwaysOnTop.Enabled = VideoWindow.Visible && !VideoWindow.IsFullscreen;
+            _contextMenuBorderless.Enabled = _contextMenuAlwaysOnTop.Enabled = (VideoWindow?.Visible).GetValueOrDefault(false) && !(VideoWindow?.IsFullscreen).GetValueOrDefault(false);
 
             _contextMenuSettingSourceDevice.Enabled = false;
             _contextMenuSettingSourceDevice.Text = $"Device ({CurrentInputVideoDevice.Name})";

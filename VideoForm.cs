@@ -712,7 +712,7 @@ namespace TVFox
                 _videoContainer.Left = (ClientRectangle.Width - _videoContainer.Width) / 2;
             }
 
-            _videoWindow.SetWindowPosition(0, 0, _videoContainer.Width, _videoContainer.Height);
+            _videoWindow?.SetWindowPosition(0, 0, _videoContainer.Width, _videoContainer.Height);
 
             _isResizing = false;
         }
